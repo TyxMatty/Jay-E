@@ -29,16 +29,16 @@ export async function onDragOver(callback) {
   await getCurrentWebview().onDragDropEvent((event) => callback(event.payload.type === 'enter' || event.payload.type === 'over'));
 }
 
+/** Closing the window: `callback(event)` may call `event.preventDefault()` to keep it open. */
+export async function onCloseRequested(callback) {
+  if (!isTauri) return;
+  const { getCurrentWindow } = await import('@tauri-apps/api/window');
+  await getCurrentWindow().onCloseRequested(callback);
+}
+
 /** The URL the asset protocol serves the file at (Rust allowed only the opened ones). */
 export async function fileUrl(file) {
   return (await core()).convertFileSrc(file.path);
-}
-
-/** Text of a file in UTF-8 or, with a byte-order mark, UTF-16. */
-export function decodeText(buffer) {
-  const bytes = new Uint8Array(buffer);
-  const encoding = bytes[0] === 0xff && bytes[1] === 0xfe ? 'utf-16le' : bytes[0] === 0xfe && bytes[1] === 0xff ? 'utf-16be' : 'utf-8';
-  return new TextDecoder(encoding).decode(bytes); // drops the BOM
 }
 
 /** "1.2 MB" */

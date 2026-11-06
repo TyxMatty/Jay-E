@@ -15,6 +15,9 @@ png = "0.18"
 # PDF: pure Rust (spike S1, docs/ARQUITETURA.md). The 14 standard fonts and the CJK CMaps are
 # embedded so PDFs that don't embed them still draw.
 hayro = { version = "0.9", features = ["embed-fonts", "embed-cmaps"] }
+pulldown-cmark = "0.13"
+ammonia = "4"
+math-core = "0.9"
 
 # hayro is far too slow unoptimized; the tests and `npm run dev` build it optimized.
 [profile.dev.package."*"]

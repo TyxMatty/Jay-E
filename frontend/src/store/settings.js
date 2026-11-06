@@ -8,6 +8,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   style: 'calm',
   /** Interface language: 'system' (the OS language), 'en' or 'pt-BR' (core/i18n.js). */
   language: 'system',
+  /** The Markdown editor's view: 'code', 'split' or 'preview' (ui/text-editor.js). */
+  markdownMode: 'split',
 });
 
 function load() {

@@ -3,7 +3,7 @@
 import { h } from './dom.js';
 import { icons } from './icons.js';
 import { createViewer } from './viewers.js';
-import { isTauri, pickFiles, startupFiles, onFilesOpened, onDragOver } from '../core/files.js';
+import { isTauri, pickFiles, startupFiles, onFilesOpened, onDragOver, onCloseRequested } from '../core/files.js';
 import { t } from '../core/i18n.js';
 
 export function createFilesPanel() {
@@ -22,7 +22,7 @@ export function createFilesPanel() {
     { class: 'view-notice view-empty' },
     h('span', { class: 'empty-icon', html: icons.file, 'aria-hidden': 'true' }),
     h('h2', {}, t('Open a file or drop it here')),
-    h('p', { class: 'hint' }, isTauri ? t('PDF, images, video, audio and text today; Markdown, DOCX and LaTeX next.') : t('Only in the app: the browser preview opens no files.')),
+    h('p', { class: 'hint' }, isTauri ? t('PDF, Markdown, text, images, video and audio today; DOCX next.') : t('Only in the app: the browser preview opens no files.')),
   );
 
   // A newer pick replaces an older one still loading.
@@ -40,7 +40,7 @@ export function createFilesPanel() {
     const doc = docs.find((d) => d.id === id);
     if (!doc) return view.replaceChildren(empty);
     doc.viewer ??= createViewer(doc.file);
-    const viewer = await doc.viewer;
+    const viewer = (doc.el = await doc.viewer);
     if (token === renderToken) view.replaceChildren(viewer);
   }
 
@@ -71,9 +71,12 @@ export function createFilesPanel() {
     show(last);
   }
 
+  /** Unsaved edits are never dropped without asking. */
+  const confirmDiscard = (dirty) => !dirty.length || confirm(t('Unsaved changes in {names}. Close anyway?', { names: dirty.map((d) => d.file.name).join(', ') }));
+
   function close(id) {
     const index = docs.findIndex((d) => d.id === id);
-    if (index < 0) return;
+    if (index < 0 || !confirmDiscard(docs.filter((d) => d.id === id && d.el?.isDirty?.()))) return;
     const [doc] = docs.splice(index, 1);
     doc.viewer?.then((viewer) => viewer.dispose?.());
     renderBar();
@@ -106,6 +109,9 @@ export function createFilesPanel() {
     }
   });
 
+  onCloseRequested((event) => {
+    if (!confirmDiscard(docs.filter((d) => d.el?.isDirty?.()))) event.preventDefault();
+  });
   onFilesOpened(add);
   onDragOver((over) => (dropHint.hidden = !over));
   startupFiles().then(add);

@@ -760,31 +760,6 @@ fieldset > h3 {
   background: #000;
 }
 
-.view-stack {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.view-banner {
-  margin: 0;
-  padding: 8px 16px;
-  border-bottom: 1px solid var(--border);
-}
-
-.view-text {
-  flex: 1;
-  margin: 0;
-  padding: 16px 20px;
-  overflow: auto;
-  font: 13px/1.6 var(--font-mono);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  user-select: text;
-  background: var(--surface);
-}
-
 .drop-hint {
   position: absolute;
   inset: 12px;
@@ -816,7 +791,7 @@ fieldset > h3 {
   flex-direction: column;
 }
 
-.pdf-toolbar {
+.doc-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -826,17 +801,17 @@ fieldset > h3 {
   background: var(--surface);
 }
 
-.pdf-toolbar .icon-btn {
+.doc-toolbar .icon-btn {
   width: 32px;
   height: 32px;
 }
 
-.pdf-toolbar .icon-btn[aria-pressed='true'] {
+.doc-toolbar .icon-btn[aria-pressed='true'] {
   background: var(--accent-soft);
   color: var(--text);
 }
 
-.pdf-toolbar .input {
+.doc-toolbar .input {
   height: 32px;
   padding: 0 8px;
   font-size: 13px;
@@ -1011,4 +986,231 @@ fieldset > h3 {
 
 .pdf-password {
   max-width: 420px;
+}
+
+/* ---------- Text editor and Markdown ---------- */
+
+.text-editor {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.editor-status .hint {
+  margin: 0;
+}
+
+.editor-dirty {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.doc-toolbar .segmented label {
+  padding: 4px 12px;
+  font-size: 13px;
+}
+
+.doc-toolbar .btn {
+  min-height: 32px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+.editor-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--warning) 14%, var(--surface));
+  font-size: 14px;
+}
+
+.editor-banner > span {
+  flex: 1;
+  min-width: 200px;
+  overflow-wrap: anywhere;
+}
+
+.editor-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.editor-body[data-mode='code'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.editor-body[data-mode='code'] > .preview-pane,
+.editor-body[data-mode='preview'] > .editor-pane {
+  display: none;
+}
+
+.editor-body[data-mode='preview'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.editor-pane {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.editor-body[data-mode='split'] > .editor-pane {
+  border-right: 1px solid var(--border);
+}
+
+.preview-pane {
+  /* The offsetParent of its markers, for scroll sync. */
+  position: relative;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 28px 40vh;
+  background: var(--surface);
+  outline: none;
+}
+
+/* Rendered Markdown: the preview and the printed page. */
+.markdown {
+  font-size: 15px;
+  line-height: 1.65;
+  overflow-wrap: break-word;
+}
+
+.markdown > :first-child,
+.markdown > span:first-child + * {
+  margin-top: 0;
+}
+
+.markdown h1,
+.markdown h2 {
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border);
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  margin: 1.4em 0 0.6em;
+  line-height: 1.25;
+}
+
+.markdown a {
+  color: var(--accent);
+}
+
+.markdown code,
+.markdown pre {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--surface-2);
+  border-radius: 6px;
+}
+
+.markdown code {
+  padding: 0.15em 0.35em;
+}
+
+.markdown pre {
+  padding: 12px 16px;
+  overflow-x: auto;
+}
+
+.markdown pre code {
+  padding: 0;
+  background: none;
+}
+
+.markdown blockquote {
+  margin: 0 0 1em;
+  padding: 0 1em;
+  color: var(--text-muted);
+  border-left: 4px solid var(--border-strong);
+}
+
+.markdown table {
+  border-collapse: collapse;
+  margin: 0 0 1em;
+  display: block;
+  overflow-x: auto;
+}
+
+.markdown th,
+.markdown td {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+}
+
+.markdown img {
+  max-width: 100%;
+}
+
+.markdown li:has(> input[type='checkbox']) {
+  list-style: none;
+}
+
+.markdown li > input[type='checkbox'] {
+  margin: 0 0.4em 0 -1.3em;
+}
+
+.markdown math[display='block'] {
+  margin: 0.8em 0;
+  font-size: 1.15em;
+}
+
+.markdown .math-error {
+  color: var(--danger);
+}
+
+/* Export PDF: only #print-root prints (ui/text-editor.js), on white paper in any theme. */
+#print-root {
+  display: none;
+}
+
+@media print {
+  body > :not(#print-root) {
+    display: none !important;
+  }
+
+  html,
+  body {
+    height: auto;
+    background: #fff;
+  }
+
+  #print-root {
+    display: block;
+    color: #1f2328;
+    --text: #1f2328;
+    --text-muted: #59636e;
+    --border: #d1d9e0;
+    --border-strong: #c0c8d0;
+    --surface-2: #f6f8fa;
+    --accent: #0969da;
+  }
+
+  #print-root pre,
+  #print-root blockquote,
+  #print-root table,
+  #print-root img {
+    break-inside: avoid;
+  }
+
+  #print-root h1,
+  #print-root h2,
+  #print-root h3 {
+    break-after: avoid;
+  }
 }

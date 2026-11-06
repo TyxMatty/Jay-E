@@ -345,7 +345,7 @@ function buildViewer(root, { doc, pages: sizes }) {
 
   const toolbar = h(
     'div',
-    { class: 'pdf-toolbar', role: 'toolbar', 'aria-label': t('PDF tools') },
+    { class: 'doc-toolbar', role: 'toolbar', 'aria-label': t('PDF tools') },
     thumbsButton,
     h('span', { class: 'pdf-page-nav' }, pageInput, h('span', { class: 'hint' }, `/ ${count}`)),
     h('span', { class: 'pdf-search-box' }, searchInput, h('button', { type: 'button', class: 'icon-btn', title: t('Previous result'), 'aria-label': t('Previous result'), html: icons.up, onClick: () => showHit(hitIndex - 1) }), h('button', { type: 'button', class: 'icon-btn', title: t('Next result'), 'aria-label': t('Next result'), html: icons.down, onClick: () => showHit(hitIndex + 1) }), hitsLabel),

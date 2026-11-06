@@ -488,7 +488,7 @@ impl<'a> Device<'a> for TextDevice {
             let t: Affine = props.transform * glyph.transform();
             let advance = match &**glyph {
                 Glyph::Outline(o) => o.advance_width().unwrap_or(500.0),
-                Glyph::Type3(_) => 500.0,
+                Glyph::Type3(g) => g.advance_width().unwrap_or(500.0),
             } as f64;
             let origin = t * Point::ZERO;
             let end = t * Point::new(advance, 0.0);
@@ -661,6 +661,42 @@ mod tests {
         assert!((first.y - (50.0 - 16.0)).abs() < 0.5 && (first.h - 20.0).abs() < 0.5, "{first:?}");
         assert_eq!(first.xs.len(), first.text.chars().count());
         assert!(first.xs.windows(2).all(|w| w[0] < w[1]));
+    }
+
+    /// Chromium's PDFs (Markdown exported to PDF) use Type 3 fonts: their widths must come from
+    /// the font, or every gap looks like a space.
+    #[test]
+    fn type3_text_keeps_its_words() {
+        let glyph = "900 0 0 0 800 600 d1 0 0 800 600 re f";
+        let objs = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>".into(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 100] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>".into(),
+            {
+                let c = "BT /F1 20 Tf 10 50 Td (ab ba) Tj ET";
+                format!("<< /Length {} >>\nstream\n{c}\nendstream", c.len())
+            },
+            "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 900 600] /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /a 6 0 R /b 6 0 R /space 7 0 R >> \
+             /Encoding << /Type /Encoding /Differences [32 /space 97 /a /b] >> /FirstChar 32 /LastChar 98 /Widths [250 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 900 900] >>"
+                .into(),
+            format!("<< /Length {} >>\nstream\n{glyph}\nendstream", glyph.len()),
+            "<< /Length 7 >>\nstream\n250 0 d0\nendstream".into(),
+        ];
+        let mut out = b"%PDF-1.7\n".to_vec();
+        let mut offsets = vec![];
+        for (i, o) in objs.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend(format!("{} 0 obj\n{o}\nendobj\n", i + 1).bytes());
+        }
+        let xref = out.len();
+        out.extend(format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1).bytes());
+        for o in offsets {
+            out.extend(format!("{o:010} 00000 n \n").bytes());
+        }
+        out.extend(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objs.len() + 1).bytes());
+        let doc = PdfDocument::from_bytes(Arc::new(out), "").unwrap();
+        let texts: Vec<String> = doc.text(0).recv_timeout(WAIT).unwrap().into_iter().map(|l| l.text).collect();
+        assert_eq!(texts, ["ab ba"]);
     }
 
     #[test]

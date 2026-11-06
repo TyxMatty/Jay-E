@@ -5,6 +5,7 @@
 
 mod files;
 mod pdf;
+mod text;
 
 use tauri::{DragDropEvent, Manager, WindowEvent};
 
@@ -58,6 +59,11 @@ fn main() {
             pdf::pdf_links,
             pdf::pdf_search,
             pdf::pdf_cancel_search,
+            text::text_open,
+            text::text_stamp,
+            text::text_save,
+            text::markdown_render,
+            text::markdown_export_html,
             open_link,
         ])
         .run(tauri::generate_context!())

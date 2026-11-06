@@ -4,7 +4,7 @@
 
 The editor and reader of the Jay line: documents (PDF, DOCX, ODT, RTF, Markdown, LaTeX, text), images and videos, with conversion between formats. Lightweight, quick to render, Rust first. Windows first.
 
-Plan and stages: [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md); the study of LibreOffice, ONLYOFFICE, MarkText, PhotoCraft and Kdenlive behind it: [`docs/REFERENCIAS.md`](docs/REFERENCIAS.md) (both in Portuguese). For now (stage 1) the app has its window (in Jay-C's Calm, Neon and Soft styles) and opens files from the Open button (Ctrl+O), a drop on the window or the command line, one tab each. PDFs open in Jay-E's own reader, drawn in Rust with hayro (thumbnails, zoom, search, copying text, links); images, video, audio and text show too; DOCX, Markdown and LaTeX get their viewers in the next stages.
+Plan and stages: [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md); the study of LibreOffice, ONLYOFFICE, MarkText, PhotoCraft and Kdenlive behind it: [`docs/REFERENCIAS.md`](docs/REFERENCIAS.md) (both in Portuguese). For now (stage 2) the app has its window (in Jay-C's Calm, Neon and Soft styles) and opens files from the Open button (Ctrl+O), a drop on the window or the command line, one tab each. PDFs open in Jay-E's own reader, drawn in Rust with hayro (thumbnails, zoom, search, copying text, links); Markdown, LaTeX and text open in an editor that saves in the file's own encoding and line endings, Markdown with a live preview rendered in Rust (math included) and export to HTML and PDF; images, video and audio show too; DOCX gets its viewer next.
 
 ## Running
 
