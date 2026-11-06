@@ -4,7 +4,7 @@
 
 O editor e leitor da linha Jay: documentos (PDF, DOCX, ODT, RTF, Markdown, LaTeX, texto), imagens e vídeos, com conversão entre formatos. Leve, rápido para desenhar, Rust primeiro. Windows primeiro.
 
-Plano e etapas: [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md); o estudo do LibreOffice, ONLYOFFICE, MarkText, PhotoCraft e Kdenlive que embasa o plano: [`docs/REFERENCIAS.md`](docs/REFERENCIAS.md). Por enquanto (etapa 0) o app tem a janela (nos estilos Calmo, Neon e Suave do Jay-C) e abre arquivos pelo botão Abrir (Ctrl+O), soltando na janela ou pela linha de comando, um por aba. Imagens, vídeo, áudio e texto aparecem; PDF, DOCX, Markdown e LaTeX ganham os visualizadores nas próximas etapas.
+Plano e etapas: [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md); o estudo do LibreOffice, ONLYOFFICE, MarkText, PhotoCraft e Kdenlive que embasa o plano: [`docs/REFERENCIAS.md`](docs/REFERENCIAS.md). Por enquanto (etapa 1) o app tem a janela (nos estilos Calmo, Neon e Suave do Jay-C) e abre arquivos pelo botão Abrir (Ctrl+O), soltando na janela ou pela linha de comando, um por aba. PDFs abrem no leitor do próprio Jay-E, desenhado no Rust com o hayro (miniaturas, zoom, busca, copiar texto, links); imagens, vídeo, áudio e texto também aparecem; DOCX, Markdown e LaTeX ganham os visualizadores nas próximas etapas.
 
 ## Rodando
 

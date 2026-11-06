@@ -1,15 +1,16 @@
-// One viewer per kind of file (jay_docs::Kind). Stage 0 uses what WebView2 already does fast:
-// images, video, audio and text. The other kinds say which stage brings their viewer
-// (docs/ARQUITETURA.md, section 8).
+// One viewer per kind of file (jay_docs::Kind). Images, video, audio and text use what WebView2
+// already does fast; PDF is drawn by Rust (pdf-viewer.js). The other kinds say which stage brings
+// their viewer (docs/ARQUITETURA.md, section 8).
 import { h } from './dom.js';
 import { fileUrl, decodeText, formatSize } from '../core/files.js';
+import { createPdfViewer } from './pdf-viewer.js';
 import { t } from '../core/i18n.js';
 
 /** Larger text files wait for the editor of stage 2, which won't load them whole. */
 const MAX_TEXT_BYTES = 20 * 1024 * 1024;
 
 /** The stage that brings the viewer of each kind not shown yet. */
-const STAGE = { pdf: 1, markdown: 2, document: 4, latex: 6 };
+const STAGE = { markdown: 2, document: 4, latex: 6 };
 
 const notice = (file, ...lines) =>
   h(
@@ -41,6 +42,7 @@ function imageView(file, url) {
 export async function createViewer(file) {
   if (file.error) return notice(file, t("Couldn't open it: {error}", { error: file.error }));
   try {
+    if (file.kind === 'pdf') return await createPdfViewer(file);
     const url = await fileUrl(file);
     switch (file.kind) {
       case 'image':

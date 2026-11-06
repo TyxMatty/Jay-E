@@ -7,7 +7,7 @@ import { isTauri, pickFiles, startupFiles, onFilesOpened, onDragOver } from '../
 import { t } from '../core/i18n.js';
 
 export function createFilesPanel() {
-  /** @type {Array<{ id: number, file: object }>} */
+  /** @type {Array<{ id: number, file: object, viewer?: Promise<HTMLElement> }>} */
   let docs = [];
   let current = null;
   let nextId = 1;
@@ -22,7 +22,7 @@ export function createFilesPanel() {
     { class: 'view-notice view-empty' },
     h('span', { class: 'empty-icon', html: icons.file, 'aria-hidden': 'true' }),
     h('h2', {}, t('Open a file or drop it here')),
-    h('p', { class: 'hint' }, isTauri ? t('Images, video, audio and text today; PDF, Markdown, DOCX and LaTeX next.') : t('Only in the app: the browser preview opens no files.')),
+    h('p', { class: 'hint' }, isTauri ? t('PDF, images, video, audio and text today; Markdown, DOCX and LaTeX next.') : t('Only in the app: the browser preview opens no files.')),
   );
 
   // A newer pick replaces an older one still loading.
@@ -35,9 +35,12 @@ export function createFilesPanel() {
       tab.setAttribute('aria-selected', String(on));
       tab.tabIndex = on ? 0 : -1;
     }
+    // A hidden tab keeps its viewer (and where it was), but its video or audio stops.
+    for (const media of view.querySelectorAll('video, audio')) media.pause();
     const doc = docs.find((d) => d.id === id);
     if (!doc) return view.replaceChildren(empty);
-    const viewer = await createViewer(doc.file);
+    doc.viewer ??= createViewer(doc.file);
+    const viewer = await doc.viewer;
     if (token === renderToken) view.replaceChildren(viewer);
   }
 
@@ -71,7 +74,8 @@ export function createFilesPanel() {
   function close(id) {
     const index = docs.findIndex((d) => d.id === id);
     if (index < 0) return;
-    docs.splice(index, 1);
+    const [doc] = docs.splice(index, 1);
+    doc.viewer?.then((viewer) => viewer.dispose?.());
     renderBar();
     if (current === id) show(docs[Math.min(index, docs.length - 1)]?.id ?? null);
     docBar.querySelector('[aria-selected="true"]')?.focus();

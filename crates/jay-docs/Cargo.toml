@@ -9,3 +9,13 @@ rust-version = "1.90"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+# Pages go to the page as PNG made with fdeflate's fastest mode (already in the tree through hayro)
+# instead of raw RGBA, which the WebView2 protocol moves at ~14 ms/MB (spike S1).
+png = "0.18"
+# PDF: pure Rust (spike S1, docs/ARQUITETURA.md). The 14 standard fonts and the CJK CMaps are
+# embedded so PDFs that don't embed them still draw.
+hayro = { version = "0.9", features = ["embed-fonts", "embed-cmaps"] }
+
+# hayro is far too slow unoptimized; the tests and `npm run dev` build it optimized.
+[profile.dev.package."*"]
+opt-level = 3

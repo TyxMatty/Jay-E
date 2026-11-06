@@ -31,7 +31,7 @@ A suíte inteira (Writer, Calc, Impress, Draw), em C++, com a UNO como modelo de
 
 - O LibreOffice usa o **PDFium** para ler e desenhar PDF (`include/vcl/filter/PDFiumLibrary.hxx`, um invólucro C++ dele), e tem um gravador de PDF próprio (`vcl/inc/pdf/pdfwriter_impl.hxx`, com criptografia R6, XMP, fontes embutidas).
 - A **importação de PDF como desenho** (`sdext/README.md`) roda o poppler num **processo externo**: um PDF malicioso que derruba o parser não derruba o editor.
-- **No Jay-E:** PDFium é o candidato a motor de PDF (spike S1). Rodar o parser num processo à parte, como o `pdfimport`, entra como decisão aberta (D5).
+- **No Jay-E:** o PDFium foi medido contra o hayro (Rust puro) no spike S1, e o hayro ganhou (`ARQUITETURA.md`, seção 8). Com ele, um PDF malicioso não corrompe memória, então o parser fica no mesmo processo, numa thread por documento (D5).
 
 ### 1.5 Outros pontos
 
@@ -138,7 +138,7 @@ Editor de vídeo do KDE, em C++/Qt. O trabalho pesado é do **MLT** (decodificar
 | Um modelo interno no meio: um leitor e um gravador por formato | ONLYOFFICE (`doct`) | o modelo de documento (etapa 4) e a conversão (etapa 8) |
 | Leitor = tokenizador do formato + mapeador comum | LibreOffice (`writerfilter`) | os leitores de DOCX, ODT, RTF e Markdown |
 | Tiles pedidos por coordenada e zoom, só o que está visível, cache com limite | LibreOfficeKit, ONLYOFFICE (`viewer.js`), PhotoCraft | visualizador de PDF (etapa 1) e de imagens grandes (etapa 3) |
-| PDF pelo PDFium; parser num processo à parte | LibreOffice | spike S1; decisão D5 |
+| PDF desenhado no Rust; o parser isolado do resto | LibreOffice (PDFium, `pdfimport` em outro processo) | etapa 1 ✅, com o hayro (Rust seguro) numa thread por documento em vez de outro processo |
 | Markdown → estado → Markdown, conformidade CommonMark/GFM, HTML limpo | MarkText | etapa 2, com `pulldown-cmark` e `ammonia` no Rust |
 | Salvar na mesma codificação e fim de linha, gravação atômica, vigiar mudanças de fora | MarkText | todo editor de texto (etapa 2) |
 | PDF pela impressão do navegador | MarkText (`printToPDF`) | exportar Markdown, DOCX e HTML para PDF |

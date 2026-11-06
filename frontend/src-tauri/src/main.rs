@@ -4,8 +4,20 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod files;
+mod pdf;
 
 use tauri::{DragDropEvent, Manager, WindowEvent};
+
+/// A web or mail link from a PDF, in the default browser. Only http(s) and mailto, checked again
+/// here because the page sends it.
+#[tauri::command]
+fn open_link(uri: String) -> Result<(), String> {
+    let lower = uri.to_ascii_lowercase();
+    if !["http://", "https://", "mailto:"].iter().any(|s| lower.starts_with(s)) {
+        return Err("not a web link".into());
+    }
+    tauri_plugin_opener::open_url(uri, None::<&str>).map_err(|e| e.to_string())
+}
 
 fn main() {
     tauri::Builder::default()
@@ -20,6 +32,10 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .manage(files::OpenedPaths::default())
+        .manage(pdf::Docs::default())
+        .register_asynchronous_uri_scheme_protocol("jaye", pdf::protocol)
         .setup(|app| {
             let args: Vec<String> = std::env::args().collect();
             let cwd = std::env::current_dir().unwrap_or_default();
@@ -32,7 +48,18 @@ fn main() {
                 files::announce(window.app_handle(), paths.clone());
             }
         })
-        .invoke_handler(tauri::generate_handler![files::pick_files, files::startup_files])
+        .invoke_handler(tauri::generate_handler![
+            files::pick_files,
+            files::startup_files,
+            pdf::pdf_open,
+            pdf::pdf_close,
+            pdf::pdf_visible,
+            pdf::pdf_text,
+            pdf::pdf_links,
+            pdf::pdf_search,
+            pdf::pdf_cancel_search,
+            open_link,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Jay-E");
 }

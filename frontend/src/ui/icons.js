@@ -11,4 +11,10 @@ export const icons = {
   /** Files: a page with a folded corner. */
   file: svg('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>'),
   close: svg('<path d="M18 6L6 18M6 6l12 12"/>'),
+  /** Thumbnails: a panel on the left. */
+  sidebar: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>'),
+  up: svg('<path d="M18 15l-6-6-6 6"/>'),
+  down: svg('<path d="M6 9l6 6 6-6"/>'),
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  minus: svg('<path d="M5 12h14"/>'),
 };

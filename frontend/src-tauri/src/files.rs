@@ -4,6 +4,7 @@
 
 use jay_docs::Kind;
 use serde::Serialize;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -21,6 +22,17 @@ pub struct OpenedFile {
     size: u64,
     /// Why it can't be shown (unreadable, a folder…). The page shows it instead of a viewer.
     error: Option<String>,
+}
+
+/// Every file the person opened. Commands that take a path back from the page (pdf.rs) only
+/// accept these.
+#[derive(Default)]
+pub struct OpenedPaths(Mutex<HashSet<PathBuf>>);
+
+impl OpenedPaths {
+    pub fn contains(&self, path: &Path) -> bool {
+        self.0.lock().unwrap().contains(path)
+    }
 }
 
 /// Files from the command line of the first launch, until the page asks for them.
@@ -45,8 +57,9 @@ fn open_one(app: &AppHandle, path: PathBuf) -> OpenedFile {
         Ok((kind, format)) => {
             file.kind = kind;
             file.format = format;
-            if let Err(e) = app.asset_protocol_scope().allow_file(&path) {
-                file.error = Some(e.to_string());
+            match app.asset_protocol_scope().allow_file(&path) {
+                Ok(()) => drop(app.state::<OpenedPaths>().0.lock().unwrap().insert(path)),
+                Err(e) => file.error = Some(e.to_string()),
             }
         }
         Err(e) => file.error = Some(e.to_string()),

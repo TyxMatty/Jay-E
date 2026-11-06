@@ -28,7 +28,7 @@
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data: blob: asset: http://asset.localhost",
         "media-src": "'self' data: blob: asset: http://asset.localhost",
-        "connect-src": "'self' ipc: http://ipc.localhost asset: http://asset.localhost",
+        "connect-src": "'self' ipc: http://ipc.localhost asset: http://asset.localhost jaye: http://jaye.localhost",
         "font-src": "'self' data:"
       },
       "dangerousDisableAssetCspModification": [
