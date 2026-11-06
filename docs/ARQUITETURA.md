@@ -2,7 +2,7 @@
 
 O editor e leitor de arquivos da linha Jay: **documentos** (PDF, DOCX, ODT, RTF, Markdown, LaTeX, texto), **imagens** e **vídeos**, com **conversão** entre formatos. Leve, rápido para abrir e desenhar, e Rust primeiro. Windows primeiro, como o resto da linha.
 
-Escrito em 2026-11-06, a partir do Jay-A 0.1.0 e do Jay-H 0.1.0, e do estudo do LibreOffice, ONLYOFFICE, MarkText, PhotoCraft e Kdenlive em [`REFERENCIAS.md`](REFERENCIAS.md). As etapas 0, 1 e 2 estão prontas. Licença: **MIT** (D1).
+Escrito em 2026-11-06, a partir do Jay-A 0.1.0 e do Jay-H 0.1.0, e do estudo do LibreOffice, ONLYOFFICE, MarkText, PhotoCraft e Kdenlive em [`REFERENCIAS.md`](REFERENCIAS.md). As etapas 0 a 3 estão prontas. Licença: **MIT** (D1).
 
 ## 1. Visão geral
 
@@ -31,8 +31,8 @@ flowchart LR
 | RF-1 | Ver imagens (PNG, JPEG, GIF, WebP, BMP, ICO, SVG, AVIF), vídeo, áudio e texto | 0 ✅ |
 | RF-P1 | Ler PDF: rolar, zoom (largura, página, livre), miniaturas, ir para página, buscar texto, selecionar e copiar, links internos e externos, PDF com senha | 1 ✅ |
 | RF-M1 | Markdown: editar o código com prévia ao lado, CommonMark + GFM (tabelas, tarefas, notas de rodapé), fórmulas, exportar HTML e PDF | 2 ✅ |
-| RF-I1 | Editar imagens: cortar, girar, espelhar, redimensionar, brilho/contraste/saturação; desfazer; salvar como | 3 |
-| RF-I2 | Converter imagens em lote: PNG, JPEG, WebP, AVIF, BMP, TIFF, GIF, ICO, QOI, com qualidade e tamanho | 3 |
+| RF-I1 | Editar imagens: cortar, girar, espelhar, brilho/contraste/saturação; desfazer e refazer; salvar como (redimensionar entra ao salvar, pelo "lado maior") | 3 ✅ |
+| RF-I2 | Converter imagens em lote: PNG, JPEG, WebP, AVIF, BMP, TIFF, GIF, ICO, QOI, com qualidade e tamanho | 3 ✅ |
 | RF-D1 | Ler DOCX, ODT e RTF em páginas: texto, estilos, listas, tabelas, imagens, cabeçalho e rodapé | 4 |
 | RF-D2 | Converter documentos: DOCX/ODT/RTF/Markdown/HTML/TXT entre si e para PDF | 4 / 8 |
 | RF-V1 | Vídeo: cortar e juntar sem recodificar, extrair um quadro como imagem, miniaturas na barra de tempo | 5 |
@@ -74,7 +74,7 @@ flowchart LR
 | Documentos | **Modelo interno próprio** + leitores com `quick-xml` (MIT) e `zip` (MIT); visualização em HTML paginado na WebView2 | A estrela do ONLYOFFICE (seção 6). Sem LibreOffice (300 MB) nem motor de layout próprio: o HTML da WebView2 já faz fontes, bidi e quebra de linha. |
 | Documento → PDF | **`window.print()`** sobre a prévia, com um CSS de impressão: o diálogo da WebView2 já tem "Salvar como PDF" | Zero código nativo. O `PrintToPdfAsync` (salvar direto, sem diálogo) fica para a etapa 4 se fizer falta (S2). |
 | LaTeX | **Tectonic** (MIT; motor XeTeX), **baixado na primeira vez** que a pessoa compila (D6) | Instalar TeX no instalador quebraria o RNF-3. O Tectonic baixa só os pacotes que o documento usa. Alternativa: usar o MiKTeX/TeX Live que já estiver instalado. |
-| Imagens | **`image`** + **`zune-jpeg`** + **`image-webp`** + **`fast_image_resize`** (MIT/Apache) | Rust, os mesmos codecs do PhotoCraft. AVIF: decodificar pela WebView2 e codificar com `ravif` (BSD, Rust) — spike S3. |
+| Imagens | Decodificar: **`image`** 0.25 (PNG, JPEG pelo `zune-jpeg`, GIF, WebP pelo `image-webp`, BMP, TIFF, ICO, QOI), Rust puro, com limites. Codificar: o próprio `image`, **`webp`** (libwebp, C, BSD) para WebP com perda e **`ravif`** (rav1e, Rust, BSD) para AVIF | Arquivo do usuário é entrada hostil, então tudo que **lê** é Rust. A libwebp só **codifica** pixels nossos: não há WebP com perda em Rust com licença compatível (o `zenwebp` é AGPL). O `ravif` vai sem o assembly do rav1e (pediria `nasm`): AVIF fica lento (2,7 s numa foto de 5,8 MP). AVIF, HEIC e SVG não são lidos pelo Rust: AVIF e SVG abrem no visualizador da WebView2, sem edição; HEIC não abre (S3). Redimensionar com o `image` (Lanczos3 ao salvar, `thumbnail` na prévia), sem o `fast_image_resize`: bastou. |
 | Vídeo (ver) | **`<video>` da WebView2** | Decodificação de hardware, de graça. HEVC precisa da extensão do Windows: sem ela, o Jay-E avisa. |
 | Vídeo (cortar, juntar) | Cópia de stream, sem recodificar: MP4 com o **`mp4`** (MIT) / próprio, WebM/MKV com `matroska` — spike S4 | Instantâneo e sem perda; corta no keyframe mais próximo (avisado na tela). |
 | Vídeo (converter) | **Media Foundation** do Windows (`windows` crate, MIT/Apache) — D3 | Já vem no Windows: H.264, AAC, MP4, com aceleração. 0 MB no instalador. FFmpeg só como download opcional, se o usuário quiser formatos que o Media Foundation não faz. |
@@ -100,7 +100,7 @@ Jay-E/
 │     ├─ pdf/                    # 1: documento, páginas, tiles, texto, busca; 7: editar páginas (lopdf)
 │     ├─ markdown.rs             # 2 ✅: Markdown → HTML limpo, fórmulas em MathML, marcas de linha
 │     ├─ text.rs                 # 2 ✅: codificação, fim de linha, gravação atômica, carimbo
-│     ├─ image/                  # 3: decodificar com limites, operações, codificar
+│     ├─ image.rs                # 3 ✅: decodificar com limites, edições, ajustes, codificar, converter
 │     ├─ doc/                    # 4: model.rs (o modelo), docx.rs, odt.rs, rtf.rs, html.rs, md.rs
 │     ├─ video/                  # 5: sondar, cortar e juntar por cópia, Media Foundation
 │     ├─ latex.rs                # 6: Tectonic
@@ -185,7 +185,8 @@ flowchart LR
 - **Comandos que recebem caminho** (`pdf_open`, `text_open`, `text_save`, `markdown_render`…) só aceitam arquivos que a pessoa abriu (`OpenedPaths` em `files.rs`).
 - **Imagens no Markdown:** só arquivos de imagem na pasta do `.md` ou abaixo dela, liberados um a um no protocolo `asset`. Imagens da web não carregam (a CSP só deixa `asset:`): nada de pixel de rastreio. Uma `<img>` escrita em HTML cru perde o endereço na limpeza.
 - **Links na prévia** nunca navegam a janela: `http`, `https` e `mailto` abrem no navegador; o resto é ignorado.
-- **Não perder edição:** fechar uma aba ou a janela com algo não salvo pergunta antes.
+- **Não perder edição:** fechar uma aba ou a janela com algo não salvo pergunta antes (texto e imagem).
+- **Imagens:** decodificadas em Rust, com no máximo 300 megapixels, 65 535 px de lado e 3 GB de memória para o decodificador; a orientação EXIF é aplicada. O original nunca muda: "Salvar como" usa o diálogo (que pergunta antes de substituir) e a conversão em lote escreve `nome (2).ext` em vez de sobrescrever. Os metadados (EXIF, GPS) não são copiados para o arquivo novo.
 - **Downloads opcionais** (Tectonic, FFmpeg se entrar): só de endereços fixos no código, com SHA-256 conferido, como os instaladores no Jay-H.
 - **Salvar:** atômico, e nunca por cima do original sem a pessoa pedir.
 
@@ -198,7 +199,7 @@ Cada etapa termina com algo testável.
 | 0 ✅ | Scaffold: janela, estilos, tema, idioma, instância única; abrir pelo diálogo, soltando, pela linha de comando e por um segundo lançamento; detecção do tipo; abas; imagem, vídeo, áudio e texto pela WebView2 | `npm test` e `cargo test` passam; no app, uma foto, um vídeo e um `.md` abrem, cada um na sua aba ✅ |
 | 1 ✅ | Leitor de PDF (S1): páginas pelo `jaye://`, só as visíveis, zoom, miniaturas, ir para página, buscar e copiar texto, links, senha | um PDF de 1 000 páginas rola liso (RNF-2); a primeira página em < 150 ms (RNF-1); um PDF corrompido mostra o aviso |
 | 2 ✅ | Markdown: CodeMirror + prévia do `pulldown-cmark` limpa pelo `ammonia`, rolagem sincronizada, KaTeX; salvar seguro (codificação, fim de linha, atômico, vigiar); exportar HTML e PDF | abrir, editar e salvar um `.md` em CP1252 com CRLF mantém os dois; `<script>` no Markdown não roda; o PDF exportado abre no leitor da etapa 1 |
-| 3 | Imagens: editar (cortar, girar, espelhar, redimensionar, ajustes) sem destruir, com desfazer; converter em lote (S3); imagens enormes em tiles | 10 imagens mistas viram WebP e AVIF; uma bomba de descompressão é recusada; uma foto de 100 MP abre em tiles |
+| 3 ✅ | Imagens: editar (cortar, girar, espelhar, redimensionar, ajustes) sem destruir, com desfazer; converter em lote (S3); imagens enormes em tiles | 10 imagens mistas viram WebP e AVIF; uma bomba de descompressão é recusada; uma foto de 100 MP abre em tiles |
 | 4 | Documentos: o modelo; leitores de DOCX, ODT, RTF, HTML e Markdown; visualização paginada; exportar para PDF, Markdown, HTML e TXT | um DOCX com títulos, listas, tabela e imagem aparece com tudo; DOCX → Markdown → DOCX mantém o texto e os títulos |
 | 5 | Vídeo (S4): cortar e juntar por cópia, extrair quadro, miniaturas na barra de tempo; converter pelo Media Foundation, com fila e cancelar | cortar 10 s de um MP4 de 1 GB leva < 2 s e toca; converter um WebM em MP4 toca no player |
 | 6 | LaTeX: CodeMirror + compilar com o Tectonic (baixado na primeira vez, SHA-256), o PDF ao lado no leitor da etapa 1, erros na linha certa | um artigo com fórmulas e bibliografia compila; um erro de sintaxe aponta a linha |
@@ -255,13 +256,41 @@ Cada etapa termina com algo testável.
   - Um script da etapa 0 tinha gravado bytes NUL de verdade dentro do `detect.rs`; trocados pelos escapes.
 - **Não visto:** o "Exportar HTML" (abre o diálogo de salvar, que não dá para automatizar; o HTML é o mesmo do `to_html` testado), o diálogo de impressão de verdade, a confirmação ao fechar com edição não salva, o tema claro no editor, um arquivo de 50 MB no editor.
 
+**Spike S3 (2026-11-06):** a foto "Earthrise" da NASA (2 400×2 400, domínio público, Wikimedia), build release, qualidade 80:
+
+| Formato | Tempo | Tamanho |
+|---|---|---|
+| decodificar o JPEG | 14 ms | — |
+| JPEG | 100 ms | 347 KB |
+| WebP (libwebp) | 247 ms | 93 KB |
+| AVIF (ravif, sem assembly) | 2,7 s | 82 KB |
+| PNG | 35 ms | 1,9 MB |
+| QOI | 26 ms | 2,0 MB |
+| GIF (256 cores) | 3,8 s | 1,0 MB |
+
+A mesma foto ampliada para 10 000×10 000 (100 MP, JPEG de 3,9 MB): **decodifica em 275 ms**, e a prévia de 2 048 px sai em 406 ms.
+
+**Etapa 3, medido (2026-11-06):**
+- **Testes:** `cargo test` no `jay-docs` (36; os 8 novos: girar, espelhar e cortar, também numa resolução diferente; cortes que saem da imagem ou com NaN; brilho/contraste/saturação iguais aos filtros CSS, alfa intacto; os 9 formatos com e sem alfa indo e voltando; o lado maior encolhe mas não aumenta; nunca sobrescrever, sem `.tmp` sobrando; a bomba de 60 000×60 000 recusada pelo cabeçalho; orientação EXIF 6 vira 20×40) e no `src-tauri` (6).
+- **Lote (RF-I2):** 10 imagens (PNG, JPEG, WebP, BMP, TIFF, GIF, ICO, QOI, a foto e a de 100 MP) mais a bomba, pelo mesmo `convert_file` do app (`cargo run --release --example convert`): para WebP em 4,3 s, para AVIF em 41,6 s (quase tudo na de 100 MP); a bomba falha sozinha ("60000 × 60000") e as outras saem.
+- **No app de dev, pela depuração remota:** 13 arquivos abertos de uma vez. Os 9 formatos que o Rust lê abrem no editor em 40–230 ms; a foto de 100 MP em 991 ms; AVIF e SVG abrem no visualizador da WebView2; a bomba mostra "grande demais (60000 × 60000)".
+  - **Na foto de 100 MP:** girar 144 ms até a prévia nova, cortar pelo teclado (Shift+setas e Enter) 83 ms, ficando 5 000×8 000; brilho 83 ms; desfazer volta o tamanho; no 100% a região nítida chega em 209 ms com 920×500 pixels para 921×501 de CSS (1:1).
+  - **Diálogo:** qualidade só para JPEG, WebP e AVIF; "sem perda" só para WebP; os botões "Salvar esta imagem como…" e "Converter todas as imagens abertas (3)…".
+- **Defeitos achados e corrigidos no caminho:**
+  - O ICO que o próprio Jay-E gerava de uma imagem sem transparência não abria (o PNG dentro de um ícone tem de ser RGBA). O teste de formatos só usava imagem com alfa; agora roda com e sem, e falha no código antigo.
+  - O slider de ajuste só guardava o desfazer se o gesto começasse com mouse ou tecla; mudado por outro meio (um leitor de tela), o desfazer pulava o ajuste.
+  - O escurecimento fora da área de corte não aparecia: o Chromium descarta uma sombra tão grande quando nada a recorta. A camada do corte agora recorta (`overflow: hidden`).
+  - Um `cargo fmt` meu reformatou o crate inteiro (a linha Jay não usa `rustfmt`); desfeito nos arquivos antigos, o `image.rs` novo ficou formatado.
+- **Tamanho:** o `jay-e.exe` release (com hayro, rav1e, libwebp e o resto) tem 16,2 MB; comprimido com LZMA (o do instalador NSIS), 4,6 MB. Dentro do RNF-3 (15 MB de instalador), ainda sem medir o instalador de verdade.
+- **Não visto:** os diálogos de salvar e de escolher pasta (não dá para automatizar; o lote foi medido pelo exemplo), o progresso e o "Parar" do lote no app, o tema claro no editor de imagem, perfis de cor ICC (ignorados: a imagem sai em sRGB como os números do arquivo).
+
 ## 9. Riscos e spikes
 
 | # | Spike | Pronto quando |
 |---|---|---|
 | S1 ✅ | PDFium (`pdfium-render`) contra hayro | feito com 6 PDFs em vez de 30 (seção 8, "Spike S1"). Escolha: hayro |
 | S2 | `PrintToPdfAsync` da WebView2 a partir do Tauri (`webview2-com`), para salvar PDF sem o diálogo | só se a etapa 4 precisar; a etapa 2 usa `window.print()` |
-| S3 | AVIF e HEIC: decodificar (WebView2? `dav1d`?) e codificar (`ravif`) sem C pesado | uma foto do iPhone (HEIC) abre; um PNG vira AVIF |
+| S3 ✅ | AVIF, WebP com perda e HEIC | feito: ver "Spike S3" na seção 8. AVIF codifica (ravif, sem assembly); WebP com perda pela libwebp; HEIC fica de fora (só há libheif, LGPL, com libde265, e a WebView2 também não mostra) |
 | S4 | Corte sem recodificar em MP4 e WebM em Rust, e o Media Foundation para converter | um corte toca no player e no VLC; o Media Foundation converte um MOV em MP4 |
 | S5 | Tectonic: tamanho do download, tempo da primeira compilação, funcionar sem internet depois | um artigo compila offline na segunda vez |
 

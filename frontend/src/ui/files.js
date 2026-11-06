@@ -6,9 +6,13 @@ import { createViewer } from './viewers.js';
 import { isTauri, pickFiles, startupFiles, onFilesOpened, onDragOver, onCloseRequested } from '../core/files.js';
 import { t } from '../core/i18n.js';
 
+/** The open files, for viewers that act on several (image conversion). */
+let openDocs = [];
+export const openImageFiles = () => openDocs.filter((d) => d.file.kind === 'image' && !d.file.error).map((d) => d.file);
+
 export function createFilesPanel() {
   /** @type {Array<{ id: number, file: object, viewer?: Promise<HTMLElement> }>} */
-  let docs = [];
+  const docs = (openDocs = []);
   let current = null;
   let nextId = 1;
 

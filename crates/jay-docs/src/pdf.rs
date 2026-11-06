@@ -74,15 +74,7 @@ impl Bitmap {
     /// PNG with the Up filter and fdeflate's fastest mode: a text page of 1350 px goes from 10 MB
     /// to ~0.8 MB in ~6 ms (spike S1), which beats moving the raw pixels to the page.
     pub fn to_png(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(self.rgba.len() / 8);
-        let mut encoder = png::Encoder::new(&mut out, self.width, self.height);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        encoder.set_compression(png::Compression::Fastest);
-        encoder.set_filter(png::Filter::Up);
-        // Writing into a Vec only fails on a size mismatch, which `render` never makes.
-        encoder.write_header().and_then(|mut w| w.write_image_data(&self.rgba)).expect("PNG of a page");
-        out
+        crate::image::fast_png(self.width, self.height, &self.rgba)
     }
 }
 

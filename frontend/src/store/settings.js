@@ -10,6 +10,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   language: 'system',
   /** The Markdown editor's view: 'code', 'split' or 'preview' (ui/text-editor.js). */
   markdownMode: 'split',
+  /** The image "Save as / convert" options last used (ui/image-convert.js). */
+  imageExport: { format: 'webp', quality: 80, lossless: false, maxSide: null },
 });
 
 function load() {

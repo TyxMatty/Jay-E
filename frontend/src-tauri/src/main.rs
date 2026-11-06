@@ -4,6 +4,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod files;
+mod image;
 mod pdf;
 mod text;
 
@@ -36,6 +37,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .manage(files::OpenedPaths::default())
         .manage(pdf::Docs::default())
+        .manage(image::Images::default())
         .register_asynchronous_uri_scheme_protocol("jaye", pdf::protocol)
         .setup(|app| {
             let args: Vec<String> = std::env::args().collect();
@@ -64,6 +66,12 @@ fn main() {
             text::text_save,
             text::markdown_render,
             text::markdown_export_html,
+            image::image_open,
+            image::image_close,
+            image::image_set_edits,
+            image::image_save_as,
+            image::image_convert,
+            image::image_convert_cancel,
             open_link,
         ])
         .run(tauri::generate_context!())

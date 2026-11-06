@@ -33,6 +33,8 @@ export async function createViewer(file) {
     if (file.kind === 'pdf') return await (await import('./pdf-viewer.js')).createPdfViewer(file);
     if (['text', 'markdown', 'latex'].includes(file.kind)) return await (await import('./text-editor.js')).createTextEditor(file);
     const url = await fileUrl(file);
+    // Rust-decoded editor; formats it can't decode (AVIF, SVG) are shown by the WebView instead.
+    if (file.kind === 'image') return await (await import('./image-viewer.js')).createImageEditor(file, () => imageView(file, url));
     switch (file.kind) {
       case 'image':
         return imageView(file, url);

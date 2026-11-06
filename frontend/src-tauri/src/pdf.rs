@@ -88,19 +88,30 @@ pub fn pdf_cancel_search(doc: u32, docs: State<Docs>) -> Result<(), String> {
     Ok(())
 }
 
-/// `jaye://` requests: parsed here, drawn on the document's thread, answered from a waiting thread.
+/// A `jaye://` answer: a PNG (or an empty body with the status).
+pub fn response(status: StatusCode, body: Vec<u8>) -> Response<Vec<u8>> {
+    Response::builder()
+        .status(status)
+        .header("Content-Type", "image/png")
+        // Dev pages come from http://localhost:5177, a different origin.
+        .header("Access-Control-Allow-Origin", "*")
+        .header("Cache-Control", "no-store")
+        .body(body)
+        .unwrap()
+}
+
+/// All `jaye://` requests: `pdf/…` pages are drawn on the document's thread, `img/…` (image.rs) on
+/// a thread of their own; nothing blocks the WebView.
 pub fn protocol<R: Runtime>(ctx: UriSchemeContext<'_, R>, request: Request<Vec<u8>>, responder: UriSchemeResponder) {
-    let reply = |status: StatusCode, body: Vec<u8>| {
-        Response::builder()
-            .status(status)
-            .header("Content-Type", "image/png")
-            // Dev pages come from http://localhost:5177, a different origin.
-            .header("Access-Control-Allow-Origin", "*")
-            .header("Cache-Control", "no-store")
-            .body(body)
-            .unwrap()
-    };
-    let Some((doc, page, width, thumb)) = parse_page_path(request.uri().path(), request.uri().query()) else {
+    let reply = response;
+    let path = request.uri().path();
+    if let Some(rest) = path.strip_prefix("/img/") {
+        let app = ctx.app_handle().clone();
+        let parts: Vec<String> = rest.split('/').map(String::from).collect();
+        std::thread::spawn(move || responder.respond(crate::image::respond(&app, &parts.iter().map(String::as_str).collect::<Vec<_>>())));
+        return;
+    }
+    let Some((doc, page, width, thumb)) = parse_page_path(path, request.uri().query()) else {
         return responder.respond(reply(StatusCode::NOT_FOUND, vec![]));
     };
     let Ok(doc) = ctx.app_handle().state::<Docs>().get(doc) else {
