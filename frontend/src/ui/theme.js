@@ -1,0 +1,44 @@
+import { settings } from '../store/settings.js';
+import { resolveStyle } from '../core/style.js';
+
+const darkQuery = matchMedia('(prefers-color-scheme: dark)');
+const isTauri = '__TAURI_INTERNALS__' in window;
+
+/** Same logic as public/theme-init.js. */
+export function resolveTheme(preference) {
+  return preference === 'dark' || (preference === 'system' && darkQuery.matches) ? 'dark' : 'light';
+}
+
+function applyTheme() {
+  const theme = resolveTheme(settings.get().theme);
+  const root = document.documentElement;
+  if (root.dataset.theme === theme) return;
+  root.dataset.theme = theme;
+
+  // Keep the native title bar in sync.
+  if (isTauri) {
+    import('@tauri-apps/api/window')
+      .then(({ getCurrentWindow }) => getCurrentWindow().setTheme(theme))
+      .catch(() => {});
+  }
+}
+
+const applyStyle = () => (document.documentElement.dataset.style = resolveStyle(settings.get().style));
+
+export function initTheme() {
+  document.documentElement.dataset.theme = ''; // force the first applyTheme() to sync the title bar
+  applyTheme();
+  applyStyle();
+  settings.subscribe((next, prev) => {
+    if (next.theme !== prev.theme) applyTheme();
+    if (next.style !== prev.style) applyStyle();
+  });
+  darkQuery.addEventListener('change', applyTheme);
+}
+
+/** Header quick toggle: flips between explicit light and dark. */
+export function toggleTheme() {
+  settings.update({ theme: currentTheme() === 'dark' ? 'light' : 'dark' });
+}
+
+export const currentTheme = () => document.documentElement.dataset.theme;

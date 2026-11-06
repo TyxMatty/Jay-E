@@ -1,0 +1,211 @@
+/*
+ * Design tokens. <html data-theme="light|dark"> picks the colors and <html data-style="calm|neon|soft">
+ * the look (Settings › Appearance › Style); public/theme-init.js sets both before first paint.
+ * Each style's dark block redefines every color, so no light value leaks into a dark style.
+ * [data-style-preview] gets a style's tokens on one element (the previews in Settings).
+ * Copied from Jay-C, whose test/theme-contrast.test.js checks text and button contrast for all six combinations.
+ */
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('../assets/fonts/inter-latin-wght.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ---------- Calm (default): graphite, soft violet, medium corners ---------- */
+:root,
+[data-style-preview='calm'] {
+  color-scheme: light;
+
+  --bg: #f6f5fa;
+  --surface: #ffffff;
+  --surface-2: #f0eef6;
+  --surface-3: #ffffff;
+  --border: #e0dcea;
+  --border-strong: #cbc5d8;
+  --text: #17141f;
+  --text-muted: #5f5874;
+  --accent: #7048e8;
+  --accent-hover: #5f37d6;
+  --accent-contrast: #ffffff;
+  --success: #15803d;
+  --warning: #b45309;
+  --danger: #c8282e;
+  --danger-fill: #d93a3f;
+  --danger-fill-hover: #c42f34;
+  --speaking: #16a34a;
+  --shadow-sm: 0 1px 2px rgb(24 20 40 / 0.06), 0 1px 3px rgb(24 20 40 / 0.06);
+  --shadow: 0 10px 30px rgb(24 20 40 / 0.1), 0 2px 6px rgb(24 20 40 / 0.06);
+  --shadow-lg: 0 24px 60px rgb(24 20 40 / 0.18), 0 4px 12px rgb(24 20 40 / 0.08);
+  --backdrop: rgb(18 14 28 / 0.4);
+
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 18px;
+  --radius-control: 10px;
+  --radius-call: 16px;
+  --radius-tile: 14px;
+  --glow: 0 0 0 transparent;
+  --overlay-blur: 16px;
+
+  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
+}
+
+:root[data-theme='dark'],
+:root[data-theme='dark'] [data-style-preview='calm'] {
+  color-scheme: dark;
+
+  --bg: #0f0d16;
+  --surface: #17141f;
+  --surface-2: #1f1b2a;
+  --surface-3: #262235;
+  --border: #2c2738;
+  --border-strong: #3b354b;
+  --text: #ece9f3;
+  --text-muted: #a39cb6;
+  --accent: #aa8bff;
+  --accent-hover: #bba2ff;
+  --accent-contrast: #0f0d16;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #ff7b7f;
+  --danger-fill: #d4363c;
+  --danger-fill-hover: #e04449;
+  --speaking: #3dd68c;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow: 0 10px 30px rgb(0 0 0 / 0.45), 0 2px 6px rgb(0 0 0 / 0.3);
+  --shadow-lg: 0 24px 60px rgb(0 0 0 / 0.6), 0 4px 12px rgb(0 0 0 / 0.35);
+  --backdrop: rgb(0 0 0 / 0.55);
+}
+
+/* ---------- Neon: deep black, cyan + magenta, sharp corners, glow ---------- */
+:root[data-style='neon'],
+[data-style-preview='neon'] {
+  --bg: #f3f6fa;
+  --surface: #ffffff;
+  --surface-2: #e9eef5;
+  --surface-3: #ffffff;
+  --border: #d5dce8;
+  --border-strong: #b9c3d4;
+  --text: #0a0b12;
+  --text-muted: #4f5670;
+  --accent: #0e7490;
+  --accent-hover: #0b6079;
+  --accent-contrast: #ffffff;
+  --accent-2: #c026d3;
+  --success: #047857;
+  --warning: #b45309;
+  --danger: #be123c;
+  --danger-fill: #e11d48;
+  --danger-fill-hover: #be123c;
+  --speaking: #0d9488;
+  --glow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent), 0 0 18px color-mix(in srgb, var(--accent) 25%, transparent);
+
+  --radius-sm: 4px;
+  --radius: 8px;
+  --radius-lg: 10px;
+  --radius-control: 6px;
+  --radius-call: 8px;
+  --radius-tile: 8px;
+}
+
+:root[data-style='neon'][data-theme='dark'],
+:root[data-theme='dark'] [data-style-preview='neon'] {
+  --bg: #06060a;
+  --surface: #0e0e16;
+  --surface-2: #161622;
+  --surface-3: #1b1b29;
+  --border: #23233a;
+  --border-strong: #34345a;
+  --text: #eeeefa;
+  --text-muted: #9c9cbc;
+  --accent: #22d3ee;
+  --accent-hover: #67e8f9;
+  --accent-contrast: #06060a;
+  --accent-2: #e879f9;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #ff6b8b;
+  --danger-fill: #e11d48;
+  --danger-fill-hover: #f43f5e;
+  --speaking: #2ee6a6;
+  --glow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 22px color-mix(in srgb, var(--accent) 45%, transparent);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
+  --shadow: 0 10px 30px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(255 255 255 / 0.02);
+  --shadow-lg: 0 24px 60px rgb(0 0 0 / 0.7);
+  --backdrop: rgb(0 0 0 / 0.65);
+}
+
+/* ---------- Soft: warm, peach, very round ---------- */
+:root[data-style='soft'],
+[data-style-preview='soft'] {
+  --bg: #fbf7f3;
+  --surface: #ffffff;
+  --surface-2: #f4ece6;
+  --surface-3: #ffffff;
+  --border: #eadfd6;
+  --border-strong: #dccdc1;
+  --text: #2a2230;
+  --text-muted: #6b5f72;
+  --accent: #c4471f;
+  --accent-hover: #ab3c19;
+  --accent-contrast: #ffffff;
+  --success: #15803d;
+  --warning: #b45309;
+  --danger: #c22a33;
+  --danger-fill: #d83b44;
+  --danger-fill-hover: #c22a33;
+  --speaking: #15803d;
+  --shadow-sm: 0 1px 3px rgb(60 30 20 / 0.08);
+  --shadow: 0 12px 32px rgb(60 30 20 / 0.1), 0 2px 6px rgb(60 30 20 / 0.06);
+  --shadow-lg: 0 28px 64px rgb(60 30 20 / 0.16), 0 4px 12px rgb(60 30 20 / 0.08);
+  --backdrop: rgb(40 25 30 / 0.35);
+
+  --radius-sm: 12px;
+  --radius: 18px;
+  --radius-lg: 26px;
+  --radius-control: 999px;
+  --radius-call: 999px;
+  --radius-tile: 22px;
+}
+
+:root[data-style='soft'][data-theme='dark'],
+:root[data-theme='dark'] [data-style-preview='soft'] {
+  --bg: #16131b;
+  --surface: #1f1b26;
+  --surface-2: #29242f;
+  --surface-3: #302a37;
+  --border: #342e3d;
+  --border-strong: #463e51;
+  --text: #f4eff7;
+  --text-muted: #aca3b8;
+  --accent: #ff9068;
+  --accent-hover: #ffa784;
+  --accent-contrast: #16131b;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #ff8a8f;
+  --danger-fill: #d4363c;
+  --danger-fill-hover: #e04449;
+  --speaking: #34d399;
+  --shadow-sm: 0 1px 3px rgb(0 0 0 / 0.4);
+  --shadow: 0 12px 32px rgb(0 0 0 / 0.45), 0 2px 6px rgb(0 0 0 / 0.3);
+  --shadow-lg: 0 28px 64px rgb(0 0 0 / 0.6);
+  --backdrop: rgb(0 0 0 / 0.5);
+}
+
+/* Shared derived tokens (they follow the user's button color too). */
+:root {
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --focus-ring: color-mix(in srgb, var(--accent) 50%, transparent);
+  --overlay: color-mix(in srgb, var(--surface-3) 86%, transparent);
+}

@@ -1,0 +1,40 @@
+// Português (Brasil), no mesmo tom do Jay-C: direto, "você", palavras do dia a dia.
+// Keys are the English texts passed to t() (core/i18n.js).
+// test/i18n.test.js checks that every literal t('…') in src/ has an entry here.
+export default {
+  "Switch to light mode": "Mudar pro modo claro",
+  "Switch to dark mode": "Mudar pro modo escuro",
+  "Sections": "Seções",
+  "Files": "Arquivos",
+  "Settings": "Configurações",
+  "Open": "Abrir",
+  "Open files": "Arquivos abertos",
+  "Close": "Fechar",
+  "Close {name}": "Fechar {name}",
+  "Drop to open": "Solte pra abrir",
+  "Open a file or drop it here": "Abra um arquivo ou solte ele aqui",
+  "Images, video, audio and text today; PDF, Markdown, DOCX and LaTeX next.":
+    "Imagens, vídeo, áudio e texto por enquanto; PDF, Markdown, DOCX e LaTeX em seguida.",
+  "Only in the app: the browser preview opens no files.": "Só no app: a prévia no navegador não abre arquivos.",
+  "Couldn't open it: {error}": "Não deu pra abrir: {error}",
+  "Jay-E doesn't open this kind of file.": "O Jay-E não abre esse tipo de arquivo.",
+  "The viewer for this kind of file arrives in stage {stage}.": "O visualizador desse tipo de arquivo chega na etapa {stage}.",
+  "Showing the source. The formatted view arrives in stage {stage}.": "Mostrando o código. A visualização formatada chega na etapa {stage}.",
+  "This file is too big to show as text ({size} max).": "Esse arquivo é grande demais pra mostrar como texto (máximo {size}).",
+  "Click to switch between fit and real size": "Clique pra alternar entre caber na janela e o tamanho real",
+  "Appearance": "Aparência",
+  "Style": "Estilo",
+  "Calm": "Calmo",
+  "Neon": "Neon",
+  "Soft": "Suave",
+  "Theme": "Tema",
+  "System": "Sistema",
+  "Light": "Claro",
+  "Dark": "Escuro",
+  "Language": "Idioma",
+  "Jay-E reloads to change the language.": "O Jay-E recarrega pra trocar o idioma.",
+  "About": "Sobre",
+  "Jay-E {version}": "Jay-E {version}",
+  "Documents, images and video of the Jay line: read, edit and convert.":
+    "Documentos, imagens e vídeo da linha Jay: ler, editar e converter.",
+};

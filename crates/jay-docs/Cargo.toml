@@ -1,0 +1,11 @@
+[package]
+name = "jay-docs"
+version = "0.1.0"
+description = "Jay-E's engine: file detection, documents, images and video, without Tauri"
+authors = ["TyxMatty"]
+license = "MIT"
+edition = "2024"
+rust-version = "1.90"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }

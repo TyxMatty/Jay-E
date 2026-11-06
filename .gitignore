@@ -1,0 +1,21 @@
+node_modules/
+dist/
+*.log
+.env
+.env.*
+!.env.example
+
+# Rust / Tauri
+target/
+frontend/src-tauri/gen/schemas/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Machine-local Cargo config (target-dir outside OneDrive)
+/.cargo/

@@ -1,0 +1,799 @@
+/* Base, header, buttons and forms: copied from Jay-C (frontend/src/styles/app.css).
+   The section nav and panels are Jay-C Settings tabs and panels, renamed. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+/* Components set `display`; make the `hidden` attribute always win. */
+[hidden] {
+  display: none !important;
+}
+
+body {
+  /* --app-background: the user's gradient (Settings › Appearance), if any. */
+  background: var(--app-background, var(--bg));
+  color: var(--text);
+  font: 15px/1.5 var(--font);
+  font-feature-settings: 'cv11', 'ss03'; /* Inter: single-storey a, rounder quotes */
+  letter-spacing: -0.006em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* An app, not a page: dragging doesn't select labels and buttons. */
+  user-select: none;
+}
+
+/* Text meant to be copied stays selectable. */
+input,
+textarea,
+.chat-text,
+.markdown {
+  user-select: text;
+}
+
+img {
+  -webkit-user-drag: none;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.015em;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* Fixed to the window: the top bar, then the nav and the panel, which scrolls by itself. */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Thin scrollbars that follow the theme. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+/* ---------- Header ---------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(var(--overlay-blur));
+}
+
+/* With a background gradient, the bar lets it through; 75% surface keeps its text readable. */
+:root[data-background='gradient'] .topbar {
+  border-bottom-color: transparent;
+  background: color-mix(in srgb, var(--surface) 75%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 750;
+  font-size: 18px;
+  letter-spacing: -0.03em;
+  margin-right: auto;
+}
+
+/* The Jay-C wolf (assets/brand, from scripts/wolf-icon.ps1): two masks in the theme's colors, the
+   head in the accent contrast and the lines in the accent, so it follows style, theme and color. */
+.wolf-mark {
+  position: relative;
+  flex: none;
+}
+
+.wolf-mark::before,
+.wolf-mark::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--accent-contrast);
+  mask: url('../assets/brand/wolf-fill.png') center / contain no-repeat;
+}
+
+.wolf-mark::after {
+  background: var(--accent);
+  mask-image: url('../assets/brand/wolf-lines.png');
+}
+
+.brand-mark {
+  width: 32px;
+  height: 32px;
+}
+
+.brand-name > span {
+  color: var(--accent-text, var(--accent));
+}
+
+/* ---------- Buttons ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 18px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast),
+    border-color var(--dur-fast),
+    box-shadow var(--dur),
+    transform var(--dur-fast);
+}
+
+.btn:not(.btn-secondary, .btn-danger) {
+  box-shadow: var(--shadow-sm);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn:not(.btn-secondary, .btn-danger):hover:not(:disabled) {
+  box-shadow: var(--glow), var(--shadow-sm);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--border);
+  border-color: var(--border-strong);
+}
+
+.btn-danger {
+  background: var(--danger-fill);
+  color: #fff;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--danger-fill-hover);
+}
+
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+  cursor: pointer;
+  transition: background-color var(--dur-fast), border-color var(--dur-fast);
+}
+
+.icon-btn:hover {
+  background: var(--border);
+  border-color: var(--border-strong);
+}
+
+.icon-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* ---------- Forms ---------- */
+
+.field {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.field > label,
+.field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.input {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+
+.input:hover {
+  border-color: var(--border-strong);
+}
+
+.input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  outline: none;
+}
+
+.input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.input-row .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.hint[data-tone='success'] {
+  color: var(--success);
+}
+
+.hint[data-tone='error'] {
+  color: var(--danger);
+}
+
+.segmented {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+}
+
+.segmented label {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 34px;
+  border-radius: calc(var(--radius-control) - 3px);
+  transition: background-color var(--dur-fast), color var(--dur-fast);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.segmented input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.segmented label:hover {
+  color: var(--text);
+}
+
+.segmented label:has(input:checked) {
+  background: var(--surface-3);
+  color: var(--text);
+  box-shadow: var(--shadow-sm), inset 0 0 0 1px var(--border);
+}
+
+/* Settings › Appearance › Style: three small previews, each drawn with its own style's tokens. */
+.style-picker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.style-option {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.style-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.style-preview {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 6px;
+  height: 92px;
+  padding: 8px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+
+.style-option:hover .style-preview {
+  border-color: var(--border-strong);
+}
+
+.style-option:has(input:checked) .style-preview {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.style-option:has(input:focus-visible) .style-preview {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.style-preview-tile {
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-tile);
+  background: var(--surface-2);
+}
+
+.style-preview-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: var(--glow);
+}
+
+.style-preview-bar {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+}
+
+.style-preview-bar > span {
+  width: 14px;
+  height: 14px;
+  border-radius: min(var(--radius-call), 50%);
+  background: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.style-preview-bar > .is-danger {
+  background: var(--danger-fill);
+  box-shadow: none;
+}
+
+.style-option-name {
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.style-option:has(input:checked) .style-option-name {
+  color: var(--text);
+}
+
+.segmented label:has(input:focus-visible) {
+  outline: 3px solid var(--focus-ring);
+}
+
+fieldset {
+  margin: 0 0 8px;
+  padding: 0;
+  border: 0;
+}
+
+fieldset > h3 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.app-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  padding: 0;
+  overflow: hidden;
+}
+
+.app-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.app-nav [role='tab'] {
+  position: relative;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-fast), color var(--dur-fast);
+}
+
+.tab-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tab-icon {
+  display: inline-grid;
+}
+
+.tab-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.app-nav [role='tab']:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.app-nav [role='tab'][aria-selected='true'] {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.app-nav [role='tab'][aria-selected='true'] .tab-icon {
+  color: var(--accent-text, var(--accent));
+}
+
+/* A small bar on the chosen tab's edge. */
+.app-nav [role='tab'][aria-selected='true']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.app-nav [role='tab']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.app-panels {
+  min-height: 0;
+  padding: 20px;
+  overflow-y: auto;
+  background: color-mix(in srgb, var(--surface-2) 40%, var(--surface));
+}
+
+/* Each section is a card over the panel's background. */
+.app-panel > fieldset,
+.app-panel > * > fieldset {
+  margin: 0 0 14px;
+  padding: 16px 18px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.app-panel fieldset > h3 {
+  margin: 0 0 14px;
+  font-size: 15px;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+@media (max-width: 600px) {
+  .app-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .app-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .app-nav [role='tab'] {
+    white-space: nowrap;
+  }
+}
+
+/* ---------- Jay-E shell ---------- */
+
+/* The nav and panels fill the window under the top bar. */
+.app-body {
+  border-top: 0;
+}
+
+.app-panel h1 {
+  margin: 0 0 14px;
+  font-size: 22px;
+}
+
+.placeholder-card {
+  max-width: 560px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.placeholder-card > p {
+  margin: 0 0 8px;
+}
+
+.app-panel fieldset {
+  max-width: 560px;
+}
+
+/* ---------- Files ---------- */
+
+/* The panel is the viewer: no padding of its own, it fills the space under the top bar. */
+.app-panels:has(> .files-panel:not([hidden])) {
+  padding: 0;
+  overflow: hidden;
+}
+
+.files-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.files-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.doc-bar {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.files-head .btn {
+  margin-left: auto;
+}
+
+.doc-tab {
+  display: flex;
+  align-items: center;
+  max-width: 220px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.doc-tab:has([aria-selected='true']) {
+  background: var(--accent-soft);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.doc-tab [role='tab'] {
+  min-width: 0;
+  padding: 6px 4px 6px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.doc-tab-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-tab-close {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.doc-tab-close:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.doc-tab-close svg {
+  width: 14px;
+  height: 14px;
+}
+
+.doc-tab :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.doc-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: auto;
+  background: color-mix(in srgb, var(--surface-2) 40%, var(--surface));
+}
+
+.view-notice {
+  margin: auto;
+  max-width: 520px;
+  padding: 24px;
+  text-align: center;
+}
+
+.view-notice h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.view-notice audio {
+  margin-top: 12px;
+  width: min(420px, 100%);
+}
+
+.empty-icon {
+  display: inline-grid;
+  color: var(--text-muted);
+}
+
+.empty-icon svg {
+  width: 48px;
+  height: 48px;
+  stroke-width: 1.5;
+}
+
+/* Image: fits the view; a click shows it at its real size, scrolling. */
+.view-image-box {
+  flex: 1;
+  /* Flex, not grid: a stretched flex item has a definite height, so the image's max-height: 100% fits it. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.view-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  image-orientation: from-image;
+}
+
+.view-image-box.is-actual {
+  display: block;
+  cursor: zoom-out;
+}
+
+.view-image-box.is-actual .view-image {
+  max-width: none;
+  max-height: none;
+}
+
+.view-media {
+  flex: 1;
+  min-width: 0;
+  max-height: 100%;
+  background: #000;
+}
+
+.view-stack {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.view-banner {
+  margin: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.view-text {
+  flex: 1;
+  margin: 0;
+  padding: 16px 20px;
+  overflow: auto;
+  font: 13px/1.6 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  background: var(--surface);
+}
+
+.drop-hint {
+  position: absolute;
+  inset: 12px;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent-soft) 70%, transparent);
+  font-size: 18px;
+  font-weight: 700;
+  pointer-events: none;
+}

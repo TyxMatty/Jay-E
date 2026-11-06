@@ -1,0 +1,27 @@
+[package]
+name = "jay-e"
+version = "0.1.0"
+description = "Jay-E — documents, images and video: read, edit and convert"
+authors = ["TyxMatty"]
+license = "MIT"
+edition = "2024"
+rust-version = "1.90"
+
+[build-dependencies]
+tauri-build = { version = "2.7.4", features = [] }
+
+[dependencies]
+tauri = { version = "2.12.5", features = ["protocol-asset"] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+jay-docs = { path = "../../crates/jay-docs" }
+
+[profile.release]
+# Smaller, leaner binaries (same as Jay-C).
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
