@@ -47,6 +47,16 @@
     ],
     "publisher": "TyxMatty",
     "copyright": "© 2026 TyxMatty. MIT License.",
+    "fileAssociations": [
+      { "ext": ["pdf"], "name": "Jay-E.PDF", "description": "PDF document", "role": "Editor" },
+      { "ext": ["docx", "odt", "rtf"], "name": "Jay-E.Document", "description": "Document", "role": "Editor" },
+      { "ext": ["md", "markdown"], "name": "Jay-E.Markdown", "description": "Markdown document", "role": "Editor" },
+      { "ext": ["tex"], "name": "Jay-E.LaTeX", "description": "LaTeX document", "role": "Editor" },
+      { "ext": ["txt"], "name": "Jay-E.Text", "description": "Text file", "role": "Editor" },
+      { "ext": ["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "ico", "qoi"], "name": "Jay-E.Image", "description": "Image", "role": "Editor" },
+      { "ext": ["mp4", "mov", "webm"], "name": "Jay-E.Video", "description": "Video", "role": "Editor" },
+      { "ext": ["m4a", "mp3", "wav"], "name": "Jay-E.Audio", "description": "Audio", "role": "Viewer" }
+    ],
     "category": "Productivity",
     "shortDescription": "Documents, images and video: read, edit and convert",
     "icon": [

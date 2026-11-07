@@ -26,7 +26,8 @@ Every stage ends with something testable. The full plan, with the "done when" ch
   - [x] Rows and columns in the file's tables (insert above/below/left/right, delete); a header or footer where the file had none; long tables split row by row across pages, as in Word.
   - [x] First-page and even-page headers and footers ("Different first page", "Different odd & even pages"); a table's header row repeated at the top of each page it goes on to.
 - [x] **8. Converter:** one batch screen for every kind of file (images, DOCX/ODT/RTF/Markdown, PDF to text, video and audio), one format per kind, a queue with progress per file, Stop, and asking before overwriting (keep both, replace, skip). 20 mixed files in 3 s; the damaged one failed alone and the other 18 came out.
-- [ ] **9. Tools and release:** more tools in the image and video editors (ideas from PhotoCraft and OpenShot, see `docs/REFERENCIAS.md` section 6), then the release.
+- [ ] **9. Release:** NSIS installer in `%LOCALAPPDATA%\Jay-E`, file associations ("Open with"), Jay-E in Jay-H's catalog. Install on a clean machine and open a PDF with a double click.
+- [ ] **10. More tools:** the image and video editors grow (ideas from PhotoCraft and OpenShot, `docs/REFERENCIAS.md` section 6), and more ideas for every kind of file.
   - [ ] Images, tone and color: Curves and Levels with a histogram; exposure, highlights/shadows, temperature and tint, vibrance; black and white; Auto tone, contrast and color. All in the edit list, undoable.
   - [ ] Images, filters: sharpen, blur, reduce noise, vignette; color looks from `.cube` LUT files.
   - [ ] Images, geometry: straighten (free rotation with a grid), crop to a ratio (1:1, 4:3, 16:9…), perspective crop.
@@ -38,11 +39,15 @@ Every stage ends with something testable. The full plan, with the "done when" ch
   - [ ] Video, sound: volume, mute, fade in and out, save the sound alone, replace it or add music.
   - [ ] Video, fades to and from black, a dissolve between joined pieces; text and a watermark picture over the video, from a time to a time; brightness, contrast, saturation; blur an area.
   - [ ] Video: export presets (WhatsApp, YouTube 1080p, animated GIF).
-  - [ ] Release: NSIS installer in `%LOCALAPPDATA%\Jay-E`, file associations ("Open with"), Jay-E in Jay-H's catalog. Install on a clean machine and open a PDF with a double click.
+  - [ ] Images: the same edits on many pictures at once (from the converter); read HEIC and RAW through Windows' own codecs (WIC); see and remove the photo's metadata (place, camera) before sharing; before/after side by side.
+  - [ ] Video: shrink to a size (25 MB for Discord, 16 MB for WhatsApp); a GIF from a stretch; subtitles (`.srt`) shown in the player and burned in; save a frame every N seconds.
+  - [ ] PDF: compress (images at a lower resolution); a drawn signature; black out text for good (redaction, the text removed, not covered); make it searchable with Windows' own OCR (`Windows.Media.Ocr`); pictures into one PDF and pages as pictures.
+  - [ ] Documents: find and replace, word count, spelling in the file's language; compare two versions of a DOCX.
+  - [ ] Converter: read HTML; LaTeX to PDF; a folder watched for new files.
 
 ## To do (found along the way)
 
-- [ ] Converter: read HTML as a document; PDF pages to images; LaTeX to PDF in the batch; try Stop in the middle of a batch in the app.
+- [ ] Converter: try Stop in the middle of a batch in the app.
 
 - [ ] Publish the first release (v0.1.0) so the updater and Jay-H have something to find, and try updating on a test Windows account.
 - [ ] Measure the PDF reader's first page in a release build (the 150 ms goal passes in 3 of 5 PDFs in dev).

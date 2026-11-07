@@ -4,7 +4,7 @@
 import { h } from './dom.js';
 import { icons } from './icons.js';
 import { t } from '../core/i18n.js';
-import { isTauri, pickFiles, formatSize } from '../core/files.js';
+import { isTauri, pickFiles, formatSize, onFilesOpened } from '../core/files.js';
 import { GROUPS, groupOf, outputOf, pickFolder, checkExisting, startBatch, cancelBatch, describeError } from '../core/convert.js';
 import { settings } from '../store/settings.js';
 import { openFiles } from './files.js';
@@ -23,7 +23,15 @@ export function createConvertPanel() {
   const clearButton = h('button', { type: 'button', class: 'btn btn-secondary', onClick: () => setQueue([]) }, t('Clear'));
   const startButton = h('button', { type: 'button', class: 'btn', onClick: () => run() }, t('Convert…'));
   const stopButton = h('button', { type: 'button', class: 'btn btn-danger', hidden: true, onClick: () => cancelBatch().catch(() => {}) }, t('Stop'));
-  const empty = h('p', { class: 'hint cv-empty' }, t('Add files of any kind Jay-E reads: they all go into one folder, each in the format chosen for its kind.'));
+  const empty = h(
+    'div',
+    { class: 'cv-empty' },
+    h('span', { class: 'empty-icon', html: icons.convert, 'aria-hidden': 'true' }),
+    h('p', {}, t('Add files of any kind Jay-E reads, or drop them here: they all go into one folder, each in the format chosen for its kind.')),
+  );
+  // The whole batch at a glance: how many are through.
+  const total = h('progress', { class: 'cv-total', max: '1', value: '0', hidden: true, 'aria-label': t('Batch progress') });
+  const KIND_ICONS = { image: icons.image, video: icons.video, audio: icons.audio };
 
   function add(files) {
     const fresh = (files ?? []).filter((f) => !queue.some((q) => q.file.path === f.path));
@@ -34,7 +42,7 @@ export function createConvertPanel() {
     const status = h('span', { class: 'cv-status hint' });
     const bar = h('progress', { class: 'cv-bar', max: '1', hidden: true });
     const remove = h('button', { type: 'button', class: 'icon-btn', 'aria-label': t('Remove {name}', { name: file.name }), title: t('Remove'), html: icons.close, onClick: () => setQueue(queue.filter((q) => q.file !== file)) });
-    const row = h('li', { class: 'cv-row' }, h('span', { class: 'cv-name', title: file.path }, file.name), h('span', { class: 'hint cv-size' }, formatSize(file.size)), h('span', { class: 'cv-to' }), status, bar, remove);
+    const row = h('li', { class: 'cv-row' }, h('span', { class: 'cv-kind', html: KIND_ICONS[file.kind] ?? icons.file, 'aria-hidden': 'true' }), h('span', { class: 'cv-name', title: file.path }, file.name), h('span', { class: 'hint cv-size' }, formatSize(file.size)), h('span', { class: 'cv-to' }), status, bar, remove);
     return { file, row, status, bar, remove };
   }
 
@@ -49,6 +57,7 @@ export function createConvertPanel() {
     }
     list.replaceChildren(...queue.map((q) => q.row));
     empty.hidden = queue.length > 0;
+    formats.closest('fieldset')?.toggleAttribute('hidden', !formats.childElementCount);
     // One menu per kind in the list.
     formats.replaceChildren(
       ...GROUPS.filter((g) => queue.some((q) => groupOf(q.file) === g)).map((g) => {
@@ -117,6 +126,8 @@ export function createConvertPanel() {
       const existing = taken ? await askExisting(taken) : 'rename';
       if (!existing) return;
       const counts = { done: 0, failed: 0, skipped: 0 };
+      total.hidden = false;
+      total.value = 0;
       for (const q of jobs) {
         q.status.textContent = t('Waiting');
         q.row.dataset.state = 'waiting';
@@ -137,9 +148,11 @@ export function createConvertPanel() {
           q.row.dataset.state = e.event;
           q.status.textContent = e.event === 'done' ? '✓ ' + e.output.split(/[\\/]/).pop() : e.event === 'skipped' ? t('Skipped: it already exists') : t("Couldn't convert: {error}", { error: describeError(e.error, t) });
           counts[e.event === 'done' ? 'done' : e.event]++;
+          total.value = (counts.done + counts.failed + counts.skipped) / jobs.length;
         } else if (e.event === 'finished') {
           for (const j of jobs) if (j.row.dataset.state === 'waiting' || j.row.dataset.state === 'working') (j.status.textContent = t('Stopped')), (j.bar.hidden = true), delete j.row.dataset.state;
           status.textContent = (e.cancelled ? t('Stopped.') + ' ' : '') + t('{done} converted, {failed} failed, {skipped} skipped.', counts);
+          total.hidden = true;
           setRunning(false);
         }
       });
@@ -150,15 +163,18 @@ export function createConvertPanel() {
   }
 
   setQueue([]);
-  return h(
+  const panel = h(
     'section',
     { class: 'app-panel convert-panel' },
     h('h1', {}, t('Convert')),
-    h('div', { class: 'cv-actions' }, addButton, addOpenButton, clearButton),
-    empty,
-    list,
-    formats,
-    h('div', { class: 'cv-actions' }, startButton, stopButton),
-    status,
+    h('fieldset', {}, h('h3', {}, t('Files')), h('div', { class: 'cv-actions' }, addButton, addOpenButton, clearButton), empty, list),
+    h('fieldset', { class: 'cv-formats-card' }, h('h3', {}, t('Formats')), formats),
+    h('div', { class: 'cv-run' }, startButton, stopButton, h('div', { class: 'cv-run-status' }, status, total)),
   );
+  setQueue(queue); // now that the cards exist (the empty formats card hides)
+  // Files dropped on the window while this section is shown join the list (they open in Files too).
+  onFilesOpened((files) => {
+    if (panel.offsetParent && !running) add(files);
+  });
+  return panel;
 }

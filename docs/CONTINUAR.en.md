@@ -120,7 +120,8 @@ Two layers: the **engine** in Rust ([`crates/jay-docs`](../crates/jay-docs), no 
 **Size:** the installer is 16.5 MiB, above the 15 MB goal because of the TeX engine (ICU's data is most of it).
 
 **Next stages:**
-- **9. Tools and release:** more image tools (curves and levels, filters, straighten, marking up, red eye) and video tools (timeline, razor, speed, sound, fades, text over the video, presets), with ideas from PhotoCraft and OpenShot (`docs/REFERENCIAS.md`, section 6); then file associations ("Open with"), Jay-E in Jay-H's catalog, installing on a clean machine.
+- **9. Release:** file associations ("Open with"), Jay-E in Jay-H's catalog, the version published, installing on a clean machine.
+- **10. More tools:** images (curves and levels, filters, straighten, marking up), video (timeline, razor, speed, sound, fades, text over the video), PDF (compress, sign, redact, OCR), documents and the converter; ideas from PhotoCraft and OpenShot (`docs/REFERENCIAS.md`, section 6).
 
 **To do** (the full list is in [`ROADMAP.md`](../ROADMAP.md)):
 - publish the first release (v0.1.0), so the updater and Jay-H have something to find;
