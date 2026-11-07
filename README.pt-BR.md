@@ -2,45 +2,55 @@
 
 [English](README.md) · **Português**
 
-O editor e leitor da linha Jay: documentos (PDF, DOCX, ODT, RTF, Markdown, LaTeX, texto), imagens e vídeos, com conversão entre formatos. Leve, rápido para desenhar, Rust primeiro. Windows primeiro.
+O leitor e editor da linha Jay: documentos (PDF, DOCX, ODT, RTF, Markdown, LaTeX, texto), imagens e vídeos, com conversão entre formatos, num app pequeno que abre tudo rápido. Rust primeiro, Windows primeiro.
 
-É para quem quer um app só, pequeno e rápido, para abrir, ajeitar e converter os arquivos do dia a dia (um PDF para ler, um DOCX para virar Markdown, um lote de fotos para encolher em WebP, um trecho para cortar de um vídeo longo) sem instalar uma suíte de escritório, um editor de fotos e um editor de vídeo. Faz parte da linha Jay com o [Jay-C](https://github.com/TyxMatty/Jay-C) (chamadas), o [Jay-A](https://github.com/TyxMatty/Jay-A) (áudio) e o [Jay-H](https://github.com/TyxMatty/Jay-H) (o hub que instala todos).
+<p align="center"><img src="docs/images/latex.png" alt="O Jay-E com um artigo em LaTeX aberto: o código à esquerda e o PDF compilado à direita, com bibliografia" width="820"></p>
 
-## O que já faz (etapa 6)
+- **Documentos:** o leitor de PDF do próprio Jay-E, desenhado no Rust (miniaturas, busca, copiar texto, links, PDFs com senha); Word, OpenDocument e RTF numa folha A4, exportados para DOCX, Markdown, HTML, texto e PDF.
+- **Markdown e LaTeX:** um editor com prévia ao vivo, com fórmulas. O LaTeX vira PDF ao lado do editor pelo motor do TeX que vem dentro do Jay-E (o do Tectonic), e os erros levam à linha.
+- **Imagens:** girar, espelhar, cortar e ajustar, zoom em fotos de 100 MP, e converter uma ou um lote inteiro para WebP, AVIF, JPEG, PNG e outros.
+- **Vídeo:** cortar e juntar MP4 sem recodificar (na hora, mesmo num arquivo de 1 GB), converter em MP4 ou M4A pelo Media Foundation do Windows, salvar quadros em PNG.
 
-- **Abrir arquivos:** pelo botão Abrir (Ctrl+O), soltando na janela ou pela linha de comando, um por aba.
-- **PDF:** o leitor do próprio Jay-E, desenhado no Rust com o hayro: miniaturas, zoom, busca, copiar texto, links, PDFs com senha.
-- **Markdown, LaTeX e texto:** um editor que salva na codificação e no fim de linha do próprio arquivo; o Markdown com prévia ao vivo renderizada no Rust (com fórmulas) e exportação para HTML e PDF; o LaTeX compilado em PDF ao lado do editor pelo motor do TeX dentro do Jay-E (o do Tectonic), com erros que levam à linha.
-- **Imagens:** girar, espelhar, cortar, brilho/contraste/saturação, desfazer, zoom em fotos de 100 MP; converter uma ou todas de uma vez para WebP, AVIF, JPEG, PNG e outros.
-- **Vídeo e áudio:** tocam com uma faixa de miniaturas; cortar e juntar sem recodificar (na hora, mesmo num arquivo de 1 GB); converter em MP4 ou M4A pelo Media Foundation do Windows; salvar quadros em PNG.
-- **Word (DOCX), OpenDocument (ODT) e RTF:** numa folha A4, exportados para DOCX, Markdown, HTML, texto e PDF.
-- **Atualizações:** ao abrir, o Jay-E confere a release mais nova no GitHub e oferece se atualizar (ver [Atualizações](#atualizações)).
-- A janela vem nos estilos Calmo, Neon e Suave do Jay-C, clara ou escura, em português ou inglês.
+<table>
+  <tr>
+    <td><img src="docs/images/markdown-calm.png" alt="Uma nota em Markdown com a prévia ao vivo no estilo Calmo, roxo"></td>
+    <td><img src="docs/images/markdown-neon.png" alt="Uma nota em Markdown com a prévia ao vivo no estilo Neon, ciano"></td>
+    <td><img src="docs/images/markdown-soft.png" alt="Uma nota em Markdown com a prévia ao vivo no estilo Suave, laranja"></td>
+  </tr>
+  <tr align="center"><td>Calmo</td><td>Neon</td><td>Suave</td></tr>
+</table>
 
-O que vem a seguir e a lista de pendências: [`ROADMAP.md`](ROADMAP.md) (em inglês). Plano e etapas completos: [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md); o estudo do LibreOffice, ONLYOFFICE, MarkText, PhotoCraft e Kdenlive que embasa o plano: [`docs/REFERENCIAS.md`](docs/REFERENCIAS.md).
+## Download
 
-## Feito com
+Instale e atualize o Jay-E pelo **[Jay-H](https://github.com/TyxMatty/Jay-H)**, o hub da linha Jay. Ou baixe o `Jay-E_<versão>_x64-setup.exe` do **[último release](https://github.com/TyxMatty/Jay-E/releases/latest)**: ele atualiza uma versão anterior no lugar e mantém as suas configurações. O Jay-E também confere, ao abrir, se há um release mais novo e oferece se atualizar. Todas as versões estão em [releases](https://github.com/TyxMatty/Jay-E/releases).
 
-- **Rust** em tudo que lê ou grava arquivo (`crates/jay-docs`): [hayro](https://github.com/LaurenzV/hayro) para PDF, pulldown-cmark + ammonia para Markdown, a crate `image`, ravif e libwebp para imagens, e o Media Foundation do Windows para vídeo.
-- **Tauri 2** para a janela (`frontend/src-tauri`), com a WebView2.
-- **JavaScript puro** + Vite na interface (`frontend/src`), com o CodeMirror 6 nos editores.
+## Código
 
-## Rodando
+| Pasta | Conteúdo |
+|---|---|
+| [`crates/jay-docs/`](crates/jay-docs/) | O engine (Rust, sem Tauri): detecção de arquivos, PDF (hayro), Markdown, DOCX/ODT/RTF, imagens, vídeo (cópia de MP4, Media Foundation) e LaTeX (o motor do Tectonic) |
+| [`frontend/`](frontend/) | App Tauri v2 + JS puro (Vite), com o CodeMirror 6 nos editores |
+| [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md) | Arquitetura, fluxos, etapas e o que foi medido |
+| [`docs/REFERENCIAS.md`](docs/REFERENCIAS.md) | Notas do estudo do LibreOffice, ONLYOFFICE, MarkText, PhotoCraft e Kdenlive (só ideias, nenhum código) |
+| [`ROADMAP.md`](ROADMAP.md) | O que está feito, o que vem a seguir e as pendências (em inglês) |
+| [`scripts/`](scripts/) | Ferramentas de desenvolvimento: rodar JS no app de verdade, os prints do README |
 
-Node 22+ e Rust com MSVC (ver `docs/CONTINUAR.md` do Jay-C), e o [vcpkg](https://github.com/microsoft/vcpkg) com as bibliotecas em C do motor de LaTeX (uma vez; o ICU leva uns 20 min):
-
-```bash
-vcpkg install --triplet x64-windows-static-md icu freetype graphite2 fontconfig libpng
-```
+## Rodando o app
 
 ```bash
 npm install
 npm run dev
 ```
 
-`npm run dev` abre a janela do Jay-E (Tauri) com recarga automática. `jay-e.exe <arquivo>…` abre arquivos; com o Jay-E já aberto, eles vão para a janela dele. Para abrir só a interface no navegador, sem Tauri: `npm run web` (porta 5177; não abre arquivos).
+Isso abre a janela do Jay-E (Tauri) com recarregamento automático. `jay-e.exe <arquivo>…` abre arquivos; com o Jay-E já aberto, eles vão para a janela dele. Para abrir só a interface no navegador, sem Tauri, use `npm run web` (porta 5177; não abre arquivos).
 
-Crie um `.cargo/config.toml` (fora do git) com a pasta do build fora do OneDrive e onde está o vcpkg:
+O build também precisa do **[vcpkg](https://github.com/microsoft/vcpkg)** com as bibliotecas em C do motor de LaTeX. A primeira instalação leva uns 30 minutos (o ICU é quase tudo):
+
+```bash
+vcpkg install --triplet x64-windows-static-md icu freetype graphite2 fontconfig libpng
+```
+
+O build do Rust gera vários GB. Crie um `.cargo/config.toml` (fica fora do git) que o deixe fora do OneDrive e diga onde está o vcpkg:
 
 ```toml
 [build]
@@ -52,7 +62,9 @@ VCPKG_ROOT = "C:/Users/<você>/vcpkg"
 VCPKGRS_TRIPLET = "x64-windows-static-md"
 ```
 
-`npm run build` gera o instalador do Windows (NSIS) em `frontend/src-tauri/target/release/bundle/nsis/`.
+## Releases
+
+Um tag de versão (`v*`) gera o instalador no GitHub Actions ([`installer.yml`](.github/workflows/installer.yml)) como release em rascunho; publicá-lo entrega a atualização pelo Jay-H e pelo atualizador do próprio Jay-E. Antes, suba a versão em `frontend/src-tauri/tauri.conf.json`, `frontend/src-tauri/Cargo.toml` e `frontend/package.json`: o tag tem que bater com ela.
 
 ## Testes
 
@@ -62,18 +74,4 @@ cd crates/jay-docs && cargo test
 cd frontend/src-tauri && cargo test
 ```
 
-Para testar o app de verdade: abra-o com `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9226` e rode `node scripts/cdp-eval.mjs <arquivo.js>`, que executa o arquivo dentro da página dele.
-
-## Atualizações
-
-Ao abrir, o Jay-E pergunta ao GitHub pela release mais nova deste repositório. Se ela for mais nova que a versão em uso, aparece um botão "Atualizar pra x.y.z" na barra de cima. O clique baixa o `*_x64-setup.exe` da release, que só roda se o SHA-256 bater com o que o GitHub calculou, pergunta sobre edições não salvas, roda o instalador em modo passivo (mantendo as configurações) e reabre o Jay-E. É a mesma checagem que o Jay-H usa para instalar os apps Jay; sem internet, nada aparece.
-
-Para lançar uma versão:
-
-1. Suba a versão em `frontend/src-tauri/tauri.conf.json`, `frontend/src-tauri/Cargo.toml` e `frontend/package.json`.
-2. Crie a tag e envie: `git tag v0.2.0 && git push origin v0.2.0`.
-3. O workflow **Installer** gera o instalador e cria uma release em rascunho com ele. Escreva as notas, teste o instalador e publique a release: a partir daí, todo Jay-E a encontra.
-
-## Licença
-
-[MIT](LICENSE).
+Para comandar o app de verdade, abra-o com `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9226`; aí `node scripts/cdp-eval.mjs <arquivo.js>` roda esse arquivo dentro da página dele, e `node scripts/screenshots.mjs <arquivo.tex> <arquivo.md>` refaz os prints do README.

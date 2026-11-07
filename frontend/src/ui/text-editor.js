@@ -343,7 +343,7 @@ export async function createTextEditor(file) {
     ...exportButtons,
     saveButton,
   );
-  root.append(toolbar, banner, body, latex?.messages ?? null);
+  root.append(toolbar, banner, body, ...(latex ? [latex.messages] : []));
   applyMode();
   if (isMarkdown) render();
 
