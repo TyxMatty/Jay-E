@@ -21,6 +21,10 @@ jay-docs = { path = "../../crates/jay-docs" }
 # The decoded images the editor holds (jay-docs decodes them); the same versions as jay-docs.
 image = { version = "0.25", default-features = false }
 rayon = "1"
+# Updates (src/update.rs): the latest GitHub release, checked by its SHA-256; the same crates as Jay-H.
+semver = "1"
+sha2 = "0.10"
+ureq = { version = "3", features = ["json"] }
 
 [profile.release]
 # Smaller, leaner binaries (same as Jay-C).

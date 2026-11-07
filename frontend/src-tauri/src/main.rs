@@ -8,6 +8,7 @@ mod files;
 mod image;
 mod pdf;
 mod text;
+mod update;
 mod video;
 
 use tauri::{DragDropEvent, Manager, WindowEvent};
@@ -42,6 +43,7 @@ fn main() {
         .manage(image::Images::default())
         .manage(doc::Documents::default())
         .manage(video::VideoJobs::default())
+        .manage(update::Downloaded::default())
         .register_asynchronous_uri_scheme_protocol("jaye", pdf::protocol)
         .setup(|app| {
             let args: Vec<String> = std::env::args().collect();
@@ -86,6 +88,9 @@ fn main() {
             image::image_save_as,
             image::image_convert,
             image::image_convert_cancel,
+            update::update_check,
+            update::update_download,
+            update::update_install,
             open_link,
         ])
         .run(tauri::generate_context!())

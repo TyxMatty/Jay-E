@@ -150,4 +150,9 @@ export default {
   "Jay-E {version}": "Jay-E {version}",
   "Documents, images and video of the Jay line: read, edit and convert.":
     "Documentos, imagens e vídeo da linha Jay: ler, editar e converter.",
+  "Update to {version}": "Atualizar pra {version}",
+  "Jay-E {version} is out": "Saiu o Jay-E {version}",
+  "Downloading {percent}%": "Baixando {percent}%",
+  "Restart to update": "Reiniciar pra atualizar",
+  "Update failed, try again": "A atualização falhou, tente de novo",
 };

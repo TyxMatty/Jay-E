@@ -3,6 +3,7 @@ import { h } from './dom.js';
 import { icons } from './icons.js';
 import { createTabs } from './tabs.js';
 import { createFilesPanel } from './files.js';
+import { createUpdateButton } from './update.js';
 import { toggleTheme, currentTheme } from './theme.js';
 import { settings } from '../store/settings.js';
 import { resolveStyle } from '../core/style.js';
@@ -128,6 +129,7 @@ export function mountApp(root) {
     'header',
     { class: 'topbar' },
     h('div', { class: 'brand' }, h('span', { class: 'brand-mark wolf-mark', 'aria-hidden': 'true' }), h('span', { class: 'brand-name' }, 'Jay', h('span', {}, '-'), 'E')),
+    createUpdateButton(),
     createThemeToggle(),
   );
 

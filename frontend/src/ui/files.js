@@ -11,6 +11,12 @@ let openDocs = [];
 export const openImageFiles = () => openDocs.filter((d) => d.file.kind === 'image' && !d.file.error).map((d) => d.file);
 export const openVideoFiles = () => openDocs.filter((d) => d.file.kind === 'video' && !d.file.error).map((d) => d.file);
 
+/** Unsaved edits are never dropped without asking. */
+const confirmDiscard = (dirty) => !dirty.length || confirm(t('Unsaved changes in {names}. Close anyway?', { names: dirty.map((d) => d.file.name).join(', ') }));
+
+/** Before Jay-E quits (closing the window, installing an update): asks if anything is unsaved. */
+export const confirmQuit = () => confirmDiscard(openDocs.filter((d) => d.el?.isDirty?.()));
+
 export function createFilesPanel() {
   /** @type {Array<{ id: number, file: object, viewer?: Promise<HTMLElement> }>} */
   const docs = (openDocs = []);
@@ -76,9 +82,6 @@ export function createFilesPanel() {
     show(last);
   }
 
-  /** Unsaved edits are never dropped without asking. */
-  const confirmDiscard = (dirty) => !dirty.length || confirm(t('Unsaved changes in {names}. Close anyway?', { names: dirty.map((d) => d.file.name).join(', ') }));
-
   function close(id) {
     const index = docs.findIndex((d) => d.id === id);
     if (index < 0 || !confirmDiscard(docs.filter((d) => d.id === id && d.el?.isDirty?.()))) return;
@@ -115,7 +118,7 @@ export function createFilesPanel() {
   });
 
   onCloseRequested((event) => {
-    if (!confirmDiscard(docs.filter((d) => d.el?.isDirty?.()))) event.preventDefault();
+    if (!confirmQuit()) event.preventDefault();
   });
   onFilesOpened(add);
   onDragOver((over) => (dropHint.hidden = !over));
