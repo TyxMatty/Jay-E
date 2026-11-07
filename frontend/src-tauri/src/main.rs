@@ -26,6 +26,11 @@ fn open_link(uri: String) -> Result<(), String> {
 }
 
 fn main() {
+    // `jay-e.exe --jaye-tex ...`: the LaTeX engine's child process (src/latex.rs), no window.
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some(jay_docs::latex::ENGINE_ARG) {
+        std::process::exit(jay_docs::latex::engine_main(&args[2..]));
+    }
     tauri::Builder::default()
         // First plugin: a second launch ("Open with" on another file) exits at once and hands its
         // files to the running Jay-E.
@@ -84,8 +89,6 @@ fn main() {
             video::video_convert,
             video::video_cancel,
             video::video_frame,
-            latex::latex_status,
-            latex::latex_install,
             latex::latex_compile,
             latex::latex_cancel,
             latex::latex_save_pdf,

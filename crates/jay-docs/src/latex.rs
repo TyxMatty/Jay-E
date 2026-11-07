@@ -1,35 +1,26 @@
-//! LaTeX to PDF with Tectonic (MIT; XeTeX inside). Decision D6: not in the installer (TeX would
-//! be hundreds of MB); downloaded when the person asks, from a fixed release address, checked
-//! against its SHA-256 (as Jay-H does with installers). Tectonic itself then fetches only the TeX
-//! packages a document uses, and caches them.
+//! LaTeX to PDF with Tectonic's engine (MIT; XeTeX in C/C++ inside) linked into Jay-E (decision
+//! D6), not a downloaded program. Only the TeX packages a document uses come from the internet, as
+//! data, on the first compile (Tectonic's bundle, cached).
 //!
-//! Untrusted documents: Tectonic runs in its untrusted mode (no shell escape), with no window,
-//! killed after a time limit or when cancelled. The PDF goes to a cache folder; the source folder
-//! is only read (`-Z search-path`, for images and .bib files beside the .tex).
+//! The engine runs in a child `jay-e.exe` (`ENGINE_ARG`), so a document that crashes TeX or loops
+//! never takes the window down: no window, killed after a time limit or when cancelled. Untrusted
+//! mode (no shell escape); the PDF goes to a cache folder and the source folder is only read.
 
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-pub const TECTONIC_VERSION: &str = "0.17.0";
-pub const TECTONIC_URL: &str = "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%400.17.0/tectonic-0.17.0-x86_64-pc-windows-msvc.zip";
-pub const TECTONIC_SHA256: &str = "f61ce51f0b0ade1015b7de7ef368541c5424e9756ecbd0d7af97d6d48030845f";
-pub const TECTONIC_ZIP_BYTES: u64 = 21_060_223;
+/// The first argument that makes `jay-e.exe` run the TeX engine instead of the window.
+pub const ENGINE_ARG: &str = "--jaye-tex";
 /// The longest a compile may take (the first one also downloads the packages it needs).
 pub const COMPILE_LIMIT: Duration = Duration::from_secs(600);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum LatexError {
-    /// Tectonic isn't installed.
-    Missing,
-    /// The download wasn't the file expected (size or SHA-256).
-    Checksum,
-    Download { message: String },
     Timeout,
     Cancelled,
     Io { message: String },
@@ -57,51 +48,6 @@ pub struct Compiled {
     pub seconds: f64,
 }
 
-/// Where Tectonic lives inside `dir` (the app's data folder).
-pub fn tectonic_path(dir: &Path) -> PathBuf {
-    dir.join("tectonic").join(format!("tectonic-{TECTONIC_VERSION}.exe"))
-}
-
-/// Downloads Tectonic with Windows' own curl (no HTTP library in the app), checks it, and puts the
-/// executable at `tectonic_path(dir)`.
-pub fn install(dir: &Path) -> Result<PathBuf, LatexError> {
-    let folder = dir.join("tectonic");
-    std::fs::create_dir_all(&folder)?;
-    let zip = folder.join("download.zip.jaye-tmp");
-    // System32's curl by full path: not one found on PATH.
-    let curl = std::env::var_os("SystemRoot").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Windows")).join("System32").join("curl.exe");
-    let status = no_window(Command::new(curl).args(["-fsSL", "--proto", "=https", "--max-filesize", "64000000", "-o"]).arg(&zip).arg(TECTONIC_URL))
-        .stdin(Stdio::null())
-        .status();
-    let result = match status {
-        Ok(s) if s.success() => std::fs::read(&zip).map_err(LatexError::from).and_then(|bytes| unpack(&bytes, &folder)),
-        Ok(s) => Err(LatexError::Download { message: format!("curl exited with {s}") }),
-        Err(e) => Err(LatexError::Download { message: e.to_string() }),
-    };
-    let _ = std::fs::remove_file(&zip);
-    result
-}
-
-/// Checks the download's size and SHA-256, then takes `tectonic.exe` out of it.
-fn unpack(bytes: &[u8], folder: &Path) -> Result<PathBuf, LatexError> {
-    if bytes.len() as u64 != TECTONIC_ZIP_BYTES || hex(&Sha256::digest(bytes)) != TECTONIC_SHA256 {
-        return Err(LatexError::Checksum);
-    }
-    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| LatexError::Download { message: e.to_string() })?;
-    let mut exe = zip.by_name("tectonic.exe").map_err(|e| LatexError::Download { message: e.to_string() })?;
-    let mut out = Vec::new();
-    (&mut exe).take(256 << 20).read_to_end(&mut out)?;
-    let target = folder.join(format!("tectonic-{TECTONIC_VERSION}.exe"));
-    let tmp = target.with_extension("exe.jaye-tmp");
-    std::fs::write(&tmp, out)?;
-    std::fs::rename(&tmp, &target)?;
-    Ok(target)
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
 fn no_window(cmd: &mut Command) -> &mut Command {
     #[cfg(windows)]
     {
@@ -111,17 +57,16 @@ fn no_window(cmd: &mut Command) -> &mut Command {
     cmd
 }
 
-/// Compiles `source` (or `text`, the editor's unsaved version of it) into `out_dir`.
-pub fn compile(tectonic: &Path, source: &Path, text: Option<&str>, out_dir: &Path, cancel: &AtomicBool) -> Result<Compiled, LatexError> {
-    if !tectonic.is_file() {
-        return Err(LatexError::Missing);
-    }
+/// Compiles `source` (or `text`, the editor's unsaved version of it) into `out_dir`, running the
+/// engine in `engine` (Jay-E's own executable) with `ENGINE_ARG`.
+pub fn compile(engine: &Path, source: &Path, text: Option<&str>, out_dir: &Path, cancel: &AtomicBool) -> Result<Compiled, LatexError> {
     std::fs::create_dir_all(out_dir)?;
-    let stem = source.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "document".into());
-    // Unsaved text goes in a copy in the output folder; the source folder stays on the search path.
+    let name = source.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "document.tex".into());
+    let stem = Path::new(&name).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "document".into());
+    // Unsaved text goes in a copy in the output folder; TeX still sees the source folder's files.
     let input = match text {
         Some(t) => {
-            let copy = out_dir.join(format!("{stem}.tex"));
+            let copy = out_dir.join("unsaved-input.tex");
             std::fs::write(&copy, t)?;
             copy
         }
@@ -129,21 +74,19 @@ pub fn compile(tectonic: &Path, source: &Path, text: Option<&str>, out_dir: &Pat
     };
     let pdf = out_dir.join(format!("{stem}.pdf"));
     let _ = std::fs::remove_file(&pdf);
-    let search = source.parent().unwrap_or(Path::new("."));
+    let root = source.parent().unwrap_or(Path::new("."));
     let started = Instant::now();
-    let mut child = no_window(&mut Command::new(tectonic))
-        .args(["--keep-logs", "--chatter", "minimal", "--outdir"])
-        .arg(out_dir)
-        .arg("-Z")
-        .arg(format!("search-path={}", search.display()))
-        .arg(&input)
-        // Untrusted mode (no shell escape), by the documented variable.
-        .env("TECTONIC_UNTRUSTED_MODE", "1")
+    let mut child = no_window(&mut Command::new(engine))
+        .arg(ENGINE_ARG)
+        .args([input.as_os_str(), root.as_os_str(), out_dir.as_os_str()])
+        .arg(&name)
+        // Plain "error: ..." lines (termcolor colors them unless TERM says not to).
+        .env("TERM", "dumb")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()?;
-    // Read stderr on the side, so a full pipe never blocks Tectonic.
+    // Read stderr on the side, so a full pipe never blocks the engine.
     let mut stderr = child.stderr.take();
     let reader = std::thread::spawn(move || {
         let mut s = String::new();
@@ -170,6 +113,53 @@ pub fn compile(tectonic: &Path, source: &Path, text: Option<&str>, out_dir: &Pat
         diagnostics.extend(from_log(&log));
     }
     Ok(Compiled { pdf: pdf.is_file().then_some(pdf), diagnostics, seconds: started.elapsed().as_secs_f64() })
+}
+
+/// The child's side: `[input, root, out_dir, name]` after `ENGINE_ARG`. Compiles the text in
+/// `input` as `name`, finding the files it includes (images, .bib) in `root`; messages go to
+/// stderr as "error: ..." / "warning: ...". Returns the exit code.
+#[cfg(feature = "tex")]
+pub fn engine_main(args: &[String]) -> i32 {
+    use tectonic::config::PersistentConfig;
+    use tectonic::driver::{OutputFormat, ProcessingSessionBuilder};
+    use tectonic::status::termcolor::TermcolorStatusBackend;
+    use tectonic::status::{ChatterLevel, StatusBackend};
+    use tectonic_bridge_core::{SecuritySettings, SecurityStance};
+
+    let mut status = TermcolorStatusBackend::new(ChatterLevel::Minimal);
+    status.always_stderr(true);
+    let [input, root, out_dir, name] = args else {
+        tectonic::tt_error!(status, "expected: input root out_dir name");
+        return 2;
+    };
+    let run = |status: &mut dyn StatusBackend| -> tectonic::Result<()> {
+        let text = std::fs::read(input)?;
+        let config = PersistentConfig::open(false)?;
+        // Untrusted: no shell escape, no search paths outside `root`.
+        let mut sb = ProcessingSessionBuilder::new_with_security(SecuritySettings::new(SecurityStance::DisableInsecures));
+        sb.bundle(config.default_bundle(false)?)
+            .primary_input_buffer(&text)
+            .tex_input_name(name)
+            .filesystem_root(root)
+            .output_dir(out_dir)
+            .format_name("latex")
+            .format_cache_path(config.format_cache_path()?)
+            .keep_logs(true)
+            .keep_intermediates(false)
+            .print_stdout(false)
+            .output_format(OutputFormat::Pdf)
+            // \today and the PDF dates: now (or SOURCE_DATE_EPOCH), as the tectonic program does.
+            .build_date_from_env(false);
+        let mut session = sb.create(status)?;
+        session.run(status)
+    };
+    match run(&mut status) {
+        Ok(()) => 0,
+        Err(e) => {
+            status.report_error(&e);
+            1
+        }
+    }
 }
 
 /// Tectonic's own messages: "error: file.tex:12: Undefined control sequence" and "warning: …".
@@ -236,19 +226,10 @@ mod tests {
     }
 
     #[test]
-    fn a_wrong_download_is_refused() {
-        let dir = std::env::temp_dir().join(format!("jay-latex-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        assert_eq!(unpack(b"not the release", &dir).err(), Some(LatexError::Checksum));
-        // Right size, wrong bytes.
-        assert_eq!(unpack(&vec![0u8; TECTONIC_ZIP_BYTES as usize], &dir).err(), Some(LatexError::Checksum));
-        assert!(!tectonic_path(&dir).exists());
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn missing_tectonic() {
-        let r = compile(Path::new("C:/nowhere/tectonic.exe"), Path::new("a.tex"), None, &std::env::temp_dir(), &AtomicBool::new(false));
-        assert_eq!(r.err(), Some(LatexError::Missing));
+    fn a_missing_engine_is_an_error_not_a_hang() {
+        let out = std::env::temp_dir().join(format!("jay-latex-{}", std::process::id()));
+        let r = compile(Path::new("C:/nowhere/jay-e.exe"), Path::new("a.tex"), Some("x"), &out, &AtomicBool::new(false));
+        assert!(matches!(r, Err(LatexError::Io { .. })));
+        std::fs::remove_dir_all(&out).unwrap();
     }
 }

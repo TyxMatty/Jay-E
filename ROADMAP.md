@@ -13,10 +13,10 @@ Every stage ends with something testable. The full plan, with the "done when" ch
 - [x] **4. Documents:** one document model with DOCX, ODT, RTF, HTML and Markdown readers; paged A4 view; export to DOCX, Markdown, HTML, text and PDF.
 - [x] **5. Video:** cut and join MP4/MOV without re-encoding (10 s out of a 1 GB file in 42 ms), thumbnail strip, save frames as PNG, convert to MP4 or M4A through Windows' Media Foundation.
 - [x] **Updates:** Jay-E checks its latest GitHub release at startup and offers "Update to x.y.z"; the installer is checked against GitHub's SHA-256, unsaved edits are asked about, and Jay-E reopens when it's done. Releases are built by CI on a version tag.
+- [x] **6. LaTeX:** compiled to PDF by Tectonic's TeX engine built into `jay-e.exe` (run as a child process, no downloaded program), the PDF beside the editor in the stage 1 reader, errors that jump to their line. An article with a bibliography: 1.4 s (98 s the first time, fetching 42 MB of TeX packages).
 
 ## Next
 
-- [ ] **6. LaTeX:** CodeMirror + compiling with Tectonic (downloaded the first time, SHA-256 checked), the PDF beside it in the stage 1 reader, errors on the right line.
 - [ ] **7. Editing:** DOCX and ODT (text, styles, lists, simple tables, images) with a lossless round trip; PDF: merge, split, reorder, rotate and delete pages, annotations, forms.
 - [ ] **8. Converter:** one batch screen for every kind of file, with a queue, progress, cancel and asking before overwriting. A corrupted file fails on its own and the others still convert.
 - [ ] **9. Release:** NSIS installer in `%LOCALAPPDATA%\Jay-E`, file associations ("Open with"), Jay-E in Jay-H's catalog. Install on a clean machine and open a PDF with a double click.
@@ -30,11 +30,12 @@ Every stage ends with something testable. The full plan, with the "done when" ch
 - [ ] Video: HEVC, a phone video recorded sideways (rotation), the conversion's progress and Stop in the app; an M4A made by Media Foundation opens as a video.
 - [ ] Documents: a large DOCX (hundreds of pages); ODT and RTF saved by Word.
 - [ ] Markdown: a 50 MB file in the editor; the close confirmation with unsaved edits, checked in the app.
+- [ ] LaTeX: compiling offline after the first time, "Save PDF…", Stop and the time limit in the app, a document with images.
+- [ ] The installer grew to 16.5 MiB with the TeX engine (goal: 15 MB): see if ICU's data can be cut to what XeTeX uses.
 - [ ] CI that runs `npm test` and both `cargo test` on every push.
 
 ## Open questions
 
 - Spreadsheets (XLSX/ODS/CSV) and presentations (PPTX/ODP): out of v1 for now ("not supported"); read-only after stage 8 would need a cell model.
-- Where TeX comes from: Tectonic downloaded on first compile (recommended), or an installed MiKTeX/TeX Live when there is one.
 - Readers in a separate process: only if a PDF ever hangs the interpreter.
 - An English version of the architecture document.

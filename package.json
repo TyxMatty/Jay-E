@@ -1,7 +1,7 @@
 {
   "name": "jay-e",
   "private": true,
-  "description": "Jay-E — the hub of the Jay line: every Jay app in one place",
+  "description": "Jay-E — the Jay line's reader and editor for documents, images and video",
   "license": "MIT",
   "workspaces": [
     "frontend"

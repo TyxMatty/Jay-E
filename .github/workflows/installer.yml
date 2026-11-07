@@ -16,6 +16,11 @@ jobs:
   windows:
     name: Windows installer (NSIS)
     runs-on: windows-latest
+    # The LaTeX engine (Tectonic's XeTeX, src/latex.rs) links its C libraries from vcpkg, statically
+    # with the /MD CRT.
+    env:
+      TECTONIC_DEP_BACKEND: vcpkg
+      VCPKGRS_TRIPLET: x64-windows-static-md
     steps:
       - uses: actions/checkout@v7
       # The updater compares the tag with the installed version: a tag that isn't the app's version
@@ -34,6 +39,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: frontend/src-tauri
+      # vcpkg comes with the runner; its built packages are cached (ICU alone takes ~20 min).
+      - uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/vcpkg/archives
+          key: vcpkg-static-md-icu-freetype-graphite2-fontconfig-libpng
+      - name: C libraries for the LaTeX engine
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install --triplet x64-windows-static-md icu freetype graphite2 fontconfig libpng
+          "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
       - run: npm ci
       # tauri build: vite build, cargo build --release, then the NSIS installer.
       - run: npm run build

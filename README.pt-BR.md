@@ -6,11 +6,11 @@ O editor e leitor da linha Jay: documentos (PDF, DOCX, ODT, RTF, Markdown, LaTeX
 
 É para quem quer um app só, pequeno e rápido, para abrir, ajeitar e converter os arquivos do dia a dia (um PDF para ler, um DOCX para virar Markdown, um lote de fotos para encolher em WebP, um trecho para cortar de um vídeo longo) sem instalar uma suíte de escritório, um editor de fotos e um editor de vídeo. Faz parte da linha Jay com o [Jay-C](https://github.com/TyxMatty/Jay-C) (chamadas), o [Jay-A](https://github.com/TyxMatty/Jay-A) (áudio) e o [Jay-H](https://github.com/TyxMatty/Jay-H) (o hub que instala todos).
 
-## O que já faz (etapa 5)
+## O que já faz (etapa 6)
 
 - **Abrir arquivos:** pelo botão Abrir (Ctrl+O), soltando na janela ou pela linha de comando, um por aba.
 - **PDF:** o leitor do próprio Jay-E, desenhado no Rust com o hayro: miniaturas, zoom, busca, copiar texto, links, PDFs com senha.
-- **Markdown, LaTeX e texto:** um editor que salva na codificação e no fim de linha do próprio arquivo; o Markdown com prévia ao vivo renderizada no Rust (com fórmulas) e exportação para HTML e PDF.
+- **Markdown, LaTeX e texto:** um editor que salva na codificação e no fim de linha do próprio arquivo; o Markdown com prévia ao vivo renderizada no Rust (com fórmulas) e exportação para HTML e PDF; o LaTeX compilado em PDF ao lado do editor pelo motor do TeX dentro do Jay-E (o do Tectonic), com erros que levam à linha.
 - **Imagens:** girar, espelhar, cortar, brilho/contraste/saturação, desfazer, zoom em fotos de 100 MP; converter uma ou todas de uma vez para WebP, AVIF, JPEG, PNG e outros.
 - **Vídeo e áudio:** tocam com uma faixa de miniaturas; cortar e juntar sem recodificar (na hora, mesmo num arquivo de 1 GB); converter em MP4 ou M4A pelo Media Foundation do Windows; salvar quadros em PNG.
 - **Word (DOCX), OpenDocument (ODT) e RTF:** numa folha A4, exportados para DOCX, Markdown, HTML, texto e PDF.
@@ -27,7 +27,11 @@ O que vem a seguir e a lista de pendências: [`ROADMAP.md`](ROADMAP.md) (em ingl
 
 ## Rodando
 
-Node 22+ e Rust com MSVC (ver `docs/CONTINUAR.md` do Jay-C).
+Node 22+ e Rust com MSVC (ver `docs/CONTINUAR.md` do Jay-C), e o [vcpkg](https://github.com/microsoft/vcpkg) com as bibliotecas em C do motor de LaTeX (uma vez; o ICU leva uns 20 min):
+
+```bash
+vcpkg install --triplet x64-windows-static-md icu freetype graphite2 fontconfig libpng
+```
 
 ```bash
 npm install
@@ -36,11 +40,16 @@ npm run dev
 
 `npm run dev` abre a janela do Jay-E (Tauri) com recarga automática. `jay-e.exe <arquivo>…` abre arquivos; com o Jay-E já aberto, eles vão para a janela dele. Para abrir só a interface no navegador, sem Tauri: `npm run web` (porta 5177; não abre arquivos).
 
-Para o build do Rust ficar fora do OneDrive, crie um `.cargo/config.toml` (fora do git):
+Crie um `.cargo/config.toml` (fora do git) com a pasta do build fora do OneDrive e onde está o vcpkg:
 
 ```toml
 [build]
 target-dir = "C:/Users/<você>/.cargo-target/jay-e"
+
+[env]
+TECTONIC_DEP_BACKEND = "vcpkg"
+VCPKG_ROOT = "C:/Users/<você>/vcpkg"
+VCPKGRS_TRIPLET = "x64-windows-static-md"
 ```
 
 `npm run build` gera o instalador do Windows (NSIS) em `frontend/src-tauri/target/release/bundle/nsis/`.

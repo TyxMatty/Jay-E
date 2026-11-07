@@ -17,7 +17,8 @@ tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-jay-docs = { path = "../../crates/jay-docs" }
+# features = ["tex"]: the LaTeX engine (Tectonic) inside the app; its C libraries come from vcpkg.
+jay-docs = { path = "../../crates/jay-docs", features = ["tex"] }
 # The decoded images the editor holds (jay-docs decodes them); the same versions as jay-docs.
 image = { version = "0.25", default-features = false }
 rayon = "1"

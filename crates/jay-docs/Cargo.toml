@@ -26,7 +26,13 @@ rgb = "0.8"
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 quick-xml = "0.42"
 mp4-atom = "0.17"
-sha2 = "0.10"
+# LaTeX (decision D6): Tectonic's engine (MIT; XeTeX in C/C++ inside) linked into Jay-E, behind
+# this feature because its C libraries (ICU, FreeType, Graphite2, fontconfig) come from vcpkg.
+tectonic = { version = "0.17", optional = true }
+tectonic_bridge_core = { version = "0.5", optional = true }
+
+[features]
+tex = ["dep:tectonic", "dep:tectonic_bridge_core"]
 
 # hayro is far too slow unoptimized; the tests and `npm run dev` build it optimized.
 [profile.dev.package."*"]

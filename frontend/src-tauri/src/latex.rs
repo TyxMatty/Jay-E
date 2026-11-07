@@ -1,6 +1,6 @@
-//! LaTeX commands over `jay_docs::latex`: Tectonic's install state and download (on request), and
-//! compiling a .tex (saved, or the editor's text) into a PDF in the cache, which opens in the PDF
-//! viewer beside the editor.
+//! LaTeX commands over `jay_docs::latex`: compiling a .tex (saved, or the editor's text) into a PDF
+//! in the cache, which opens in the PDF viewer beside the editor. The engine is Jay-E's own
+//! executable run again with `latex::ENGINE_ARG` (see `main`).
 
 use crate::files::{self, OpenedFile, OpenedPaths};
 use jay_docs::latex::{self, Diagnostic, LatexError};
@@ -16,10 +16,6 @@ use tauri_plugin_dialog::DialogExt;
 #[derive(Default)]
 pub struct Compiles(Mutex<HashMap<PathBuf, Arc<AtomicBool>>>);
 
-fn data_dir(app: &AppHandle) -> Result<PathBuf, LatexError> {
-    app.path().app_local_data_dir().map_err(|e| LatexError::Io { message: e.to_string() })
-}
-
 /// The cache folder for one .tex's output (the same .tex always gets the same folder).
 fn out_dir(app: &AppHandle, source: &Path) -> Result<PathBuf, LatexError> {
     use std::hash::{Hash, Hasher};
@@ -27,26 +23,6 @@ fn out_dir(app: &AppHandle, source: &Path) -> Result<PathBuf, LatexError> {
     source.hash(&mut h);
     let cache = app.path().app_cache_dir().map_err(|e| LatexError::Io { message: e.to_string() })?;
     Ok(cache.join("latex").join(format!("{:016x}", h.finish())))
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Status {
-    installed: bool,
-    version: &'static str,
-    download_mb: u64,
-}
-
-#[tauri::command]
-pub fn latex_status(app: AppHandle) -> Result<Status, LatexError> {
-    Ok(Status { installed: latex::tectonic_path(&data_dir(&app)?).is_file(), version: latex::TECTONIC_VERSION, download_mb: latex::TECTONIC_ZIP_BYTES.div_ceil(1 << 20) })
-}
-
-/// Downloads Tectonic (the page asks the person first).
-#[tauri::command]
-pub async fn latex_install(app: AppHandle) -> Result<(), LatexError> {
-    let dir = data_dir(&app)?;
-    tauri::async_runtime::spawn_blocking(move || latex::install(&dir).map(|_| ())).await.map_err(|e| LatexError::Io { message: e.to_string() })?
 }
 
 #[derive(Serialize)]
@@ -64,14 +40,14 @@ pub async fn latex_compile(path: PathBuf, text: Option<String>, app: AppHandle, 
     if !app.state::<OpenedPaths>().contains(&path) {
         return Err(LatexError::Io { message: "not an opened file".into() });
     }
-    let tectonic = latex::tectonic_path(&data_dir(&app)?);
+    let engine = std::env::current_exe()?;
     let out = out_dir(&app, &path)?;
     let cancel = Arc::new(AtomicBool::new(false));
     if let Some(previous) = compiles.0.lock().unwrap().insert(path.clone(), cancel.clone()) {
         previous.store(true, Ordering::Relaxed);
     }
     let source = path.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || latex::compile(&tectonic, &source, text.as_deref(), &out, &cancel))
+    let result = tauri::async_runtime::spawn_blocking(move || latex::compile(&engine, &source, text.as_deref(), &out, &cancel))
         .await
         .map_err(|e| LatexError::Io { message: e.to_string() })??;
     let pdf = result.pdf.and_then(|p| files::open(&app, [p]).into_iter().next());

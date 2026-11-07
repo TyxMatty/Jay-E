@@ -2,7 +2,7 @@
 
 O editor e leitor de arquivos da linha Jay: **documentos** (PDF, DOCX, ODT, RTF, Markdown, LaTeX, texto), **imagens** e **vídeos**, com **conversão** entre formatos. Leve, rápido para abrir e desenhar, e Rust primeiro. Windows primeiro, como o resto da linha.
 
-Escrito em 2026-11-06, a partir do Jay-A 0.1.0 e do Jay-H 0.1.0, e do estudo do LibreOffice, ONLYOFFICE, MarkText, PhotoCraft e Kdenlive em [`REFERENCIAS.md`](REFERENCIAS.md). As etapas 0 a 5 estão prontas. Licença: **MIT** (D1).
+Escrito em 2026-11-06, a partir do Jay-A 0.1.0 e do Jay-H 0.1.0, e do estudo do LibreOffice, ONLYOFFICE, MarkText, PhotoCraft e Kdenlive em [`REFERENCIAS.md`](REFERENCIAS.md). As etapas 0 a 6 estão prontas. Licença: **MIT** (D1).
 
 ## 1. Visão geral
 
@@ -37,7 +37,7 @@ flowchart LR
 | RF-D2 | Converter documentos: DOCX/ODT/RTF/Markdown para DOCX, Markdown, HTML, TXT e PDF (ler HTML fica para a 8) | 4 ✅ / 8 |
 | RF-V1 | Vídeo: cortar e juntar sem recodificar, extrair um quadro como imagem, miniaturas na barra de tempo | 5 ✅ |
 | RF-V2 | Converter vídeo (MP4/H.264 + AAC; altura, qualidade, só o áudio em M4A), com progresso e parar | 5 ✅ |
-| RF-L1 | LaTeX: editar com realce, compilar para PDF e ver ao lado, prévia de fórmulas | 6 |
+| RF-L1 | LaTeX: editar com realce, compilar para PDF e ver ao lado, prévia de fórmulas | 6 ✅ |
 | RF-D3 | Editar DOCX e ODT: texto, negrito/itálico, títulos, listas, tabelas simples, imagens; salvar sem perder o que o Jay-E não entende | 7 |
 | RF-P2 | Editar PDF: juntar, separar, reordenar, girar e apagar páginas; anotar (destaque, nota, desenho); preencher formulário | 7 |
 | RF-C1 | Uma tela de conversão em lote para todos os tipos, com fila, progresso, cancelar e sem sobrescrever sem perguntar | 8 |
@@ -49,7 +49,7 @@ flowchart LR
 |---|---|---|
 | RNF-1 Abrir rápido | Janela pronta em menos de **500 ms**; a primeira página de um PDF de 100 páginas em menos de **150 ms** depois de abrir; uma imagem de 24 MP visível em menos de **300 ms** | tempo do clique até o primeiro quadro, pela depuração remota (performance.now) |
 | RNF-2 Rolar liso | Rolar um PDF de 1 000 páginas a **60 quadros/s** sem página em branco por mais de 100 ms; memória do cache de tiles limitada (256 MB padrão) | trace do DevTools; memória do processo |
-| RNF-3 Leve | Instalador de até **15 MB**; nada de LibreOffice, FFmpeg ou TeX no instalador (o que for opcional é baixado só quando usado) | o `.exe` do instalador |
+| RNF-3 Leve | Instalador de até **15 MB**; nada de LibreOffice, FFmpeg ou pacotes do TeX no instalador (o que for opcional é baixado só quando usado). O motor do TeX vai dentro (D6); medido na etapa 6: 16,5 MiB | o `.exe` do instalador |
 | RNF-4 Rust primeiro | Leitura, desenho, conversão e edição no Rust; a página só mostra e manda comandos. Biblioteca em C/C++ só quando não houver em Rust com qualidade (ex.: Media Foundation), e isolada atrás de um módulo | revisão |
 | RNF-5 Não perder dados | Salvar é atômico (`.tmp` e renomear); a mesma codificação e fim de linha; nunca sobrescrever o original sem pedir; aviso se outro programa mudou o arquivo; o que o Jay-E não entende num DOCX/ODT é mantido | testes de ida e volta (abrir → salvar → comparar) |
 | RNF-6 Entrada não confiável | Todo arquivo é hostil: limites de tamanho, de pixels (ex.: 256 MP), de páginas, de profundidade de XML e de descompressão (bomba ZIP); HTML de documento limpo antes de entrar na página; nada roda script de um documento | arquivos corrompidos e malformados nos testes de cada leitor |
@@ -73,7 +73,7 @@ flowchart LR
 | Editor de código (Markdown, LaTeX, texto) | **CodeMirror 6** (MIT) com a gramática do **`@lezer/markdown`** direto | O `@codemirror/lang-markdown` traria os modos de HTML, CSS e JS junto (o pacote do editor ia a 574 KB); sem ele, 352 KB, carregados só quando um texto abre. O app inicia com 19 KB de JS. |
 | Documentos | **Modelo interno próprio** (`jay_docs::doc`) + leitores com **`quick-xml`** (MIT) e **`zip`** (MIT, só deflate em Rust) para DOCX e ODT, leitor de RTF próprio; visualização em HTML numa folha A4 na WebView2; gravadores de DOCX, Markdown, HTML e TXT | A estrela do ONLYOFFICE (seção 6). Sem LibreOffice (300 MB) nem motor de layout próprio: o HTML da WebView2 já faz fontes, bidi e quebra de linha. O XML vira uma árvore pequena com limites (profundidade 512, 5 milhões de nós, nenhuma entidade de DTD expandida); cada parte do ZIP tem no máximo 256 MB descompactada. |
 | Documento → PDF | **`window.print()`** sobre a prévia, com um CSS de impressão: o diálogo da WebView2 já tem "Salvar como PDF" | Zero código nativo. O `PrintToPdfAsync` (salvar direto, sem diálogo) fica para a etapa 4 se fizer falta (S2). |
-| LaTeX | **Tectonic** (MIT; motor XeTeX), **baixado na primeira vez** que a pessoa compila (D6) | Instalar TeX no instalador quebraria o RNF-3. O Tectonic baixa só os pacotes que o documento usa. Alternativa: usar o MiKTeX/TeX Live que já estiver instalado. |
+| LaTeX | **Motor do Tectonic** (crate `tectonic` 0.17, MIT; o XeTeX em C/C++ dentro) **ligado ao `jay-e.exe`** (D6), rodando num processo filho do próprio app | Nenhum programa de fora: o `jay-e.exe --jaye-tex` compila e sai, então um documento que derrube ou prenda o TeX não leva a janela junto (tempo limite de 10 min, Parar). Só os pacotes que o documento usa vêm da internet, como dados, na primeira compilação (o bundle do Tectonic, 42 MB para um artigo, em cache). As bibliotecas em C (ICU, FreeType, Graphite2, fontconfig, libpng) vêm do vcpkg, estáticas. |
 | Imagens | Decodificar: **`image`** 0.25 (PNG, JPEG pelo `zune-jpeg`, GIF, WebP pelo `image-webp`, BMP, TIFF, ICO, QOI), Rust puro, com limites. Codificar: o próprio `image`, **`webp`** (libwebp, C, BSD) para WebP com perda e **`ravif`** (rav1e, Rust, BSD) para AVIF | Arquivo do usuário é entrada hostil, então tudo que **lê** é Rust. A libwebp só **codifica** pixels nossos: não há WebP com perda em Rust com licença compatível (o `zenwebp` é AGPL). O `ravif` vai sem o assembly do rav1e (pediria `nasm`): AVIF fica lento (2,7 s numa foto de 5,8 MP). AVIF, HEIC e SVG não são lidos pelo Rust: AVIF e SVG abrem no visualizador da WebView2, sem edição; HEIC não abre (S3). Redimensionar com o `image` (Lanczos3 ao salvar, `thumbnail` na prévia), sem o `fast_image_resize`: bastou. |
 | Vídeo (ver) | **`<video>` da WebView2** | Decodificação de hardware, de graça. HEVC precisa da extensão do Windows: sem ela, o Jay-E avisa. |
 | Vídeo (cortar, juntar) | Cópia de stream em Rust: as tabelas de amostras do `moov` lidas e regravadas com o **`mp4-atom`** (Apache-2.0), só os bytes do trecho copiados, `moov` antes do `mdat` | Instantâneo e sem perda; corta no quadro-chave no início marcado ou antes dele (a tela diz onde começou). O `mp4` crate (parado desde 2024) ficou de fora. MP4, MOV e M4A; WebM/MKV e MP4 fragmentado não (converter antes). |
@@ -104,7 +104,7 @@ Jay-E/
 │     ├─ doc/                    # 4 ✅: mod.rs (o modelo), xml.rs, docx.rs (ler e gravar), odt.rs, rtf.rs,
 │     │                          # markdown.rs (ler e gravar), html.rs, text.rs
 │     ├─ video/                  # 5 ✅: mp4.rs (cortar e juntar por cópia), mf.rs (converter, quadro)
-│     ├─ latex.rs                # 6: Tectonic
+│     ├─ latex.rs                # 6 ✅: motor do Tectonic num processo filho do jay-e.exe
 │     └─ jobs.rs                 # 5/8: fila de tarefas
 ├─ scripts/cdp-eval.mjs          # roda JS dentro do app (depuração remota na 9226)
 └─ frontend/
@@ -192,7 +192,8 @@ flowchart LR
 - **Documentos:** o HTML da tela é gerado pelo `jay_docs::doc::html`, que escapa todo texto e só mantém links `http`, `https` e `mailto`; as imagens são servidas pelo `jaye://` a partir da memória, como estão no arquivo (num `<img>`, que não roda script nem de um SVG). Exportar usa o diálogo de salvar; as imagens de um Markdown exportado ganham outro prefixo se o nome já existir na pasta.
 - **Imagens:** decodificadas em Rust, com no máximo 300 megapixels, 65 535 px de lado e 3 GB de memória para o decodificador; a orientação EXIF é aplicada. O original nunca muda: "Salvar como" usa o diálogo (que pergunta antes de substituir) e a conversão em lote escreve `nome (2).ext` em vez de sobrescrever. Os metadados (EXIF, GPS) não são copiados para o arquivo novo.
 - **Atualizações** (`src-tauri/src/update.rs`): ao abrir, a release `latest` de `TyxMatty/Jay-E`; o instalador só vem de `https://github.com/TyxMatty/Jay-E/releases/download/…`, com tamanho e SHA-256 iguais aos do GitHub (`digest`), como no Jay-H. Roda com `/P /UPDATE /R` (passivo, mantém as configurações, reabre) só depois de perguntar sobre edições não salvas. A release nasce como rascunho na CI (`.github/workflows/installer.yml`) e só é vista depois de publicada à mão.
-- **Downloads opcionais** (Tectonic, FFmpeg se entrar): só de endereços fixos no código, com SHA-256 conferido, como os instaladores no Jay-H.
+- **Downloads opcionais** (FFmpeg, se entrar): só de endereços fixos no código, com SHA-256 conferido, como os instaladores no Jay-H.
+- **LaTeX:** o motor roda no modo não confiável do Tectonic (sem *shell escape*, sem pastas de busca extras), num processo à parte sem janela; lê só a pasta do `.tex` e escreve o PDF no cache do app. Os pacotes do TeX vêm do bundle do Tectonic (só dados, nada que se execute).
 - **Salvar:** atômico, e nunca por cima do original sem a pessoa pedir.
 
 ## 8. Etapas
@@ -207,7 +208,7 @@ Cada etapa termina com algo testável.
 | 3 ✅ | Imagens: editar (cortar, girar, espelhar, redimensionar, ajustes) sem destruir, com desfazer; converter em lote (S3); imagens enormes em tiles | 10 imagens mistas viram WebP e AVIF; uma bomba de descompressão é recusada; uma foto de 100 MP abre em tiles |
 | 4 ✅ | Documentos: o modelo; leitores de DOCX, ODT, RTF, HTML e Markdown; visualização paginada; exportar para PDF, Markdown, HTML e TXT | um DOCX com títulos, listas, tabela e imagem aparece com tudo; DOCX → Markdown → DOCX mantém o texto e os títulos |
 | 5 ✅ | Vídeo (S4): cortar e juntar por cópia, extrair quadro, miniaturas na barra de tempo; converter pelo Media Foundation, com fila e cancelar | cortar 10 s de um MP4 de 1 GB leva < 2 s e toca; converter um WebM em MP4 toca no player |
-| 6 | LaTeX: CodeMirror + compilar com o Tectonic (baixado na primeira vez, SHA-256), o PDF ao lado no leitor da etapa 1, erros na linha certa | um artigo com fórmulas e bibliografia compila; um erro de sintaxe aponta a linha |
+| 6 ✅ | LaTeX: CodeMirror + compilar com o motor do Tectonic dentro do Jay-E (D6), o PDF ao lado no leitor da etapa 1, erros na linha certa | um artigo com fórmulas e bibliografia compila; um erro de sintaxe aponta a linha |
 | 7 | Edição: DOCX e ODT (texto, estilos, listas, tabelas simples, imagens) com ida e volta sem perda; PDF: juntar, separar, reordenar, girar, apagar páginas, anotações, formulários | abrir e salvar um DOCX sem editar dá o mesmo `document.xml` canônico; editado, abre no Word e no LibreOffice; dois PDFs juntados abrem em ambos |
 | 8 | Converter: tela de lote para todos os tipos, com fila, progresso, cancelar e perguntar antes de sobrescrever | lote de 20 arquivos mistos; um corrompido falha sozinho e os outros saem |
 | 9 | Release: instalador NSIS em `%LOCALAPPDATA%\Jay-E`, associações de arquivo ("Abrir com"), o Jay-E no catálogo do Jay-H | instalar numa máquina limpa, abrir um PDF com dois cliques; o Jay-H instala e atualiza o Jay-E |
@@ -305,6 +306,14 @@ A mesma foto ampliada para 10 000×10 000 (100 MP, JPEG de 3,9 MB): **decodifica
 - **No app de dev, pela depuração remota:** o MP4 de 1 GB, o WebM, o MP4 convertido dele, o vídeo do WhatsApp e o M4A abrem e tocam (`readyState` ≥ 2 em até 21 ms); o WebM tem o "Cortar" desligado com a explicação; marcar 2:30 e 2:40 pelo teclado (I e O) mostra o trecho na faixa de miniaturas; ver o print. Uma barra de rolagem sobrando foi corrigida.
 - **Não visto:** os diálogos de salvar (cortar, juntar, converter e salvar quadro no app usam o mesmo código medido pelo `cargo run --release --example video_probe`), o progresso e o "Parar" da conversão no app, HEVC, um vídeo com rotação (celular na vertical gravado de lado), o tema claro. O M4A gerado pelo Media Foundation abre como vídeo (a marca do `ftyp` dele não diz M4A) e toca só o som.
 
+**Etapa 6, medido (2026-11-07):** um artigo de teste com `amsmath`, uma equação numerada, `\cite` e `\bibliography` (fora do repositório).
+- **Testes:** `cargo test` no `jay-docs` (63; os do LaTeX: as mensagens do Tectonic e do log do TeX viram linha e texto, e um motor que não existe é erro, não espera) e no `src-tauri` (10); `npm test` (6).
+- **Motor:** o `jay-e.exe --jaye-tex` (release) compila o artigo em **1,4 s**; a bibliografia sai resolvida (o BibTeX lê o `.bib` da pasta do `.tex`). A primeira vez, com o cache vazio, leva **98 s** e baixa 42 MB de pacotes. Um comando inexistente na linha 12 sai como `error: artigo.tex:12: Undefined control sequence`.
+- **Tamanho:** o `jay-e.exe` foi a 66 MB (o ICU sozinho tem ~30 MB de dados) e o **instalador a 16,5 MiB** (era 4,6 MB): 1,5 MiB acima do RNF-3, aceito para não depender de um programa de fora.
+- **Build:** o vcpkg leva uns 30 min na primeira vez (o ICU é quase tudo); a CI usa o vcpkg que vem no Windows do GitHub e guarda os pacotes em cache.
+- **No app de dev, pela depuração remota:** o `.tex` abre e compila sozinho (1,6 s), o PDF aparece ao lado; o `\today` sai com a data de hoje (faltava a data no motor: corrigido). Um erro digitado na linha 12, sem salvar, e Ctrl+Enter: "Linha 12 · Undefined control sequence", e clicar leva o cursor à linha 12; o arquivo no disco não muda. As mensagens vinham com cores de terminal, que a lista não lia: o processo filho roda com `TERM=dumb`.
+- **Não visto:** compilar sem internet depois da primeira vez, o "Salvar PDF…" (diálogo), o "Parar" e o tempo limite no app, um documento com imagens, o instalador num PC limpo. O fontconfig avisa no stderr que não acha o arquivo de configuração; o XeTeX usa as fontes do bundle, e a mensagem não aparece na lista.
+
 ## 9. Riscos e spikes
 
 | # | Spike | Pronto quando |
@@ -313,7 +322,7 @@ A mesma foto ampliada para 10 000×10 000 (100 MP, JPEG de 3,9 MB): **decodifica
 | S2 | `PrintToPdfAsync` da WebView2 a partir do Tauri (`webview2-com`), para salvar PDF sem o diálogo | só se a etapa 4 precisar; a etapa 2 usa `window.print()` |
 | S3 ✅ | AVIF, WebP com perda e HEIC | feito: ver "Spike S3" na seção 8. AVIF codifica (ravif, sem assembly); WebP com perda pela libwebp; HEIC fica de fora (só há libheif, LGPL, com libde265, e a WebView2 também não mostra) |
 | S4 ✅ | Corte sem recodificar em Rust e conversão pelo Media Foundation | feito: ver a etapa 5 na seção 8. WebM fica para converter (o corte em Rust é de MP4/MOV) |
-| S5 | Tectonic: tamanho do download, tempo da primeira compilação, funcionar sem internet depois | um artigo compila offline na segunda vez |
+| S5 | Tectonic: tamanho do download, tempo da primeira compilação, funcionar sem internet depois | medido na etapa 6: 42 MB e 98 s na primeira vez, 1,4 s depois. Falta ver sem internet |
 
 Riscos:
 1. **Escopo enorme.** "Editor de tudo" é LibreOffice + Kdenlive + PhotoCraft. O plano corta de propósito: sem planilhas e apresentações (D2), vídeo de uma trilha só, imagem sem camadas. Cada etapa entrega um leitor útil antes do editor.
@@ -332,5 +341,5 @@ Riscos:
 | D3 ✅ | Motor de conversão de vídeo | **(a)**, feito na etapa 5: Media Foundation (0 MB). FFmpeg baixado sob demanda só se aparecer formato que o Windows não leia |
 | D4 ✅ | Editor de Markdown | **(a)**, feito na etapa 2: código + prévia (com os modos Código, Lado a lado e Prévia). WYSIWYG por blocos, como o Muya, depois, se fizer falta |
 | D5 | Leitores num processo à parte | Com o hayro (Rust seguro, pânicos capturados): **(a)** no mesmo processo, uma thread por documento · (b) à parte, só se aparecer PDF que prenda o interpretador |
-| D6 | De onde vem o TeX | **(a)** Tectonic baixado na primeira compilação · (b) usar o MiKTeX/TeX Live instalado, se houver, e o Tectonic se não · (c) só o instalado |
+| D6 ✅ | De onde vem o TeX | **(d)**, feito na etapa 6: o motor do Tectonic dentro do Jay-E, só os pacotes baixados. Recusadas: (a) baixar o programa do Tectonic (21 MB de executável de fora), (b)/(c) depender do MiKTeX/TeX Live instalado |
 | D7 | Versão em inglês desta documentação | depois, como o `ARQUITETURA.en.md` do Jay-C |
