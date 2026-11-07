@@ -2,14 +2,14 @@
 
 [English](README.md) · **Português**
 
-O leitor e editor da linha Jay: documentos (PDF, DOCX, ODT, RTF, Markdown, LaTeX, texto), imagens e vídeos, com conversão entre formatos, num app pequeno que abre tudo rápido. Rust primeiro, Windows primeiro.
+App leve e open-source para ler, editar e converter documentos, imagens e vídeos no desktop, com o trabalho pesado feito em Rust.
 
 <p align="center"><img src="docs/images/latex.png" alt="O Jay-E com um artigo em LaTeX aberto: o código à esquerda e o PDF compilado à direita, com bibliografia" width="820"></p>
 
-- **Documentos:** o leitor de PDF do próprio Jay-E, desenhado no Rust (miniaturas, busca, copiar texto, links, PDFs com senha); Word, OpenDocument e RTF numa folha A4, exportados para DOCX, Markdown, HTML, texto e PDF.
-- **Markdown e LaTeX:** um editor com prévia ao vivo, com fórmulas. O LaTeX vira PDF ao lado do editor pelo motor do TeX que vem dentro do Jay-E (o do Tectonic), e os erros levam à linha.
-- **Imagens:** girar, espelhar, cortar e ajustar, zoom em fotos de 100 MP, e converter uma ou um lote inteiro para WebP, AVIF, JPEG, PNG e outros.
-- **Vídeo:** cortar e juntar MP4 sem recodificar (na hora, mesmo num arquivo de 1 GB), converter em MP4 ou M4A pelo Media Foundation do Windows, salvar quadros em PNG.
+- **PDF, Word, OpenDocument e RTF** abrindo na hora, e exportados para o formato que você precisar.
+- **Markdown e LaTeX com prévia ao lado**, fórmulas incluídas, e os erros do LaTeX levando à linha.
+- **Fotos e vídeos**: ajustar e converter em lote, cortar e juntar vídeo sem recodificar.
+- **Sem pacote de escritório**, sem contas e sem anúncios: um instalador só, que se atualiza sozinho.
 
 <table>
   <tr>
@@ -32,6 +32,7 @@ Instale e atualize o Jay-E pelo **[Jay-H](https://github.com/TyxMatty/Jay-H)**, 
 | [`frontend/`](frontend/) | App Tauri v2 + JS puro (Vite), com o CodeMirror 6 nos editores |
 | [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md) | Arquitetura, fluxos, etapas e o que foi medido |
 | [`docs/REFERENCIAS.md`](docs/REFERENCIAS.md) | Notas do estudo do LibreOffice, ONLYOFFICE, MarkText, PhotoCraft e Kdenlive (só ideias, nenhum código) |
+| [`docs/CONTINUAR.md`](docs/CONTINUAR.md) | Montar num PC novo, como cada parte funciona, estado atual e próximos passos |
 | [`ROADMAP.md`](ROADMAP.md) | O que está feito, o que vem a seguir e as pendências (em inglês) |
 | [`scripts/`](scripts/) | Ferramentas de desenvolvimento: rodar JS no app de verdade, os prints do README |
 
