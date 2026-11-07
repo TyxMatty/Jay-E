@@ -38,7 +38,7 @@ export async function createViewer(file) {
       case 'image':
         return imageView(file, url);
       case 'video':
-        return h('video', { class: 'view-media', src: url, controls: true, preload: 'metadata', 'aria-label': file.name });
+        return (await import('./video-editor.js')).createVideoEditor(file, url);
       case 'audio':
         return h('div', { class: 'view-notice' }, h('h2', {}, file.name), h('audio', { src: url, controls: true, preload: 'metadata', 'aria-label': file.name }));
       default:

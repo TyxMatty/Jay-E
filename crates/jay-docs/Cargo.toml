@@ -25,6 +25,7 @@ rayon = "1"
 rgb = "0.8"
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 quick-xml = "0.42"
+mp4-atom = "0.17"
 
 # hayro is far too slow unoptimized; the tests and `npm run dev` build it optimized.
 [profile.dev.package."*"]
@@ -33,3 +34,8 @@ opt-level = 3
 [dev-dependencies]
 crc32fast = "1"
 serde_json = "1"
+
+# Video conversion through Media Foundation (comes with Windows; decision D3). The same windows
+# crate version Tauri uses.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_Foundation"] }

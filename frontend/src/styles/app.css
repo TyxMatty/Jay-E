@@ -1517,3 +1517,83 @@ fieldset > h3 {
     break-after: page;
   }
 }
+
+/* ---------- Video ---------- */
+
+.video-editor {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.video-range-label {
+  margin: 0 0 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.video-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  background: #000;
+}
+
+.video-stage .view-media {
+  width: 100%;
+  height: 100%;
+}
+
+/* Thumbnails along the video, the marked part over them, and where the video is now. */
+.video-strip {
+  position: relative;
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  height: 56px;
+  border-top: 1px solid var(--border);
+  background: #000;
+  cursor: pointer;
+  outline: none;
+}
+
+.video-strip canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.55;
+}
+
+.video-strip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.video-range {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border: 2px solid var(--accent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  pointer-events: none;
+}
+
+.video-playhead {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  margin-left: -1px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5);
+  pointer-events: none;
+}
+
+.video-progress {
+  width: 100%;
+  accent-color: var(--accent);
+}

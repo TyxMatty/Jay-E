@@ -2,7 +2,7 @@
 
 O editor e leitor de arquivos da linha Jay: **documentos** (PDF, DOCX, ODT, RTF, Markdown, LaTeX, texto), **imagens** e **vídeos**, com **conversão** entre formatos. Leve, rápido para abrir e desenhar, e Rust primeiro. Windows primeiro, como o resto da linha.
 
-Escrito em 2026-11-06, a partir do Jay-A 0.1.0 e do Jay-H 0.1.0, e do estudo do LibreOffice, ONLYOFFICE, MarkText, PhotoCraft e Kdenlive em [`REFERENCIAS.md`](REFERENCIAS.md). As etapas 0 a 4 estão prontas. Licença: **MIT** (D1).
+Escrito em 2026-11-06, a partir do Jay-A 0.1.0 e do Jay-H 0.1.0, e do estudo do LibreOffice, ONLYOFFICE, MarkText, PhotoCraft e Kdenlive em [`REFERENCIAS.md`](REFERENCIAS.md). As etapas 0 a 5 estão prontas. Licença: **MIT** (D1).
 
 ## 1. Visão geral
 
@@ -35,8 +35,8 @@ flowchart LR
 | RF-I2 | Converter imagens em lote: PNG, JPEG, WebP, AVIF, BMP, TIFF, GIF, ICO, QOI, com qualidade e tamanho | 3 ✅ |
 | RF-D1 | Ler DOCX, ODT e RTF numa folha A4: texto, títulos, negrito/itálico, listas, tabelas, imagens, links, quebras de página (cabeçalho e rodapé ficam para depois) | 4 ✅ |
 | RF-D2 | Converter documentos: DOCX/ODT/RTF/Markdown para DOCX, Markdown, HTML, TXT e PDF (ler HTML fica para a 8) | 4 ✅ / 8 |
-| RF-V1 | Vídeo: cortar e juntar sem recodificar, extrair um quadro como imagem, miniaturas na barra de tempo | 5 |
-| RF-V2 | Converter vídeo (MP4/H.264 + AAC; tamanho, qualidade, só o áudio) | 5 |
+| RF-V1 | Vídeo: cortar e juntar sem recodificar, extrair um quadro como imagem, miniaturas na barra de tempo | 5 ✅ |
+| RF-V2 | Converter vídeo (MP4/H.264 + AAC; altura, qualidade, só o áudio em M4A), com progresso e parar | 5 ✅ |
 | RF-L1 | LaTeX: editar com realce, compilar para PDF e ver ao lado, prévia de fórmulas | 6 |
 | RF-D3 | Editar DOCX e ODT: texto, negrito/itálico, títulos, listas, tabelas simples, imagens; salvar sem perder o que o Jay-E não entende | 7 |
 | RF-P2 | Editar PDF: juntar, separar, reordenar, girar e apagar páginas; anotar (destaque, nota, desenho); preencher formulário | 7 |
@@ -76,8 +76,8 @@ flowchart LR
 | LaTeX | **Tectonic** (MIT; motor XeTeX), **baixado na primeira vez** que a pessoa compila (D6) | Instalar TeX no instalador quebraria o RNF-3. O Tectonic baixa só os pacotes que o documento usa. Alternativa: usar o MiKTeX/TeX Live que já estiver instalado. |
 | Imagens | Decodificar: **`image`** 0.25 (PNG, JPEG pelo `zune-jpeg`, GIF, WebP pelo `image-webp`, BMP, TIFF, ICO, QOI), Rust puro, com limites. Codificar: o próprio `image`, **`webp`** (libwebp, C, BSD) para WebP com perda e **`ravif`** (rav1e, Rust, BSD) para AVIF | Arquivo do usuário é entrada hostil, então tudo que **lê** é Rust. A libwebp só **codifica** pixels nossos: não há WebP com perda em Rust com licença compatível (o `zenwebp` é AGPL). O `ravif` vai sem o assembly do rav1e (pediria `nasm`): AVIF fica lento (2,7 s numa foto de 5,8 MP). AVIF, HEIC e SVG não são lidos pelo Rust: AVIF e SVG abrem no visualizador da WebView2, sem edição; HEIC não abre (S3). Redimensionar com o `image` (Lanczos3 ao salvar, `thumbnail` na prévia), sem o `fast_image_resize`: bastou. |
 | Vídeo (ver) | **`<video>` da WebView2** | Decodificação de hardware, de graça. HEVC precisa da extensão do Windows: sem ela, o Jay-E avisa. |
-| Vídeo (cortar, juntar) | Cópia de stream, sem recodificar: MP4 com o **`mp4`** (MIT) / próprio, WebM/MKV com `matroska` — spike S4 | Instantâneo e sem perda; corta no keyframe mais próximo (avisado na tela). |
-| Vídeo (converter) | **Media Foundation** do Windows (`windows` crate, MIT/Apache) — D3 | Já vem no Windows: H.264, AAC, MP4, com aceleração. 0 MB no instalador. FFmpeg só como download opcional, se o usuário quiser formatos que o Media Foundation não faz. |
+| Vídeo (cortar, juntar) | Cópia de stream em Rust: as tabelas de amostras do `moov` lidas e regravadas com o **`mp4-atom`** (Apache-2.0), só os bytes do trecho copiados, `moov` antes do `mdat` | Instantâneo e sem perda; corta no quadro-chave no início marcado ou antes dele (a tela diz onde começou). O `mp4` crate (parado desde 2024) ficou de fora. MP4, MOV e M4A; WebM/MKV e MP4 fragmentado não (converter antes). |
+| Vídeo (converter e tirar quadro) | **Media Foundation** do Windows (`windows` 0.62, a mesma versão do Tauri) — D3 ✅ | Já vem no Windows: decodifica o que o Windows toca (WebM/VP9 pelas extensões que vêm com ele), escala no processador de vídeo e codifica H.264 + AAC na GPU quando há. 0 MB no instalador. O quadro sai pelo Rust (o `<canvas>` da página fica bloqueado para leitura com vídeo de outra origem). |
 | Desfazer | **Pares de comandos** (fazer, desfazer) por documento, juntando digitação de até 1 s, com a seleção junto | Kdenlive (`undohelper.hpp`) e MarkText (`history`). |
 | Tarefas longas | Fila no Rust, uma por núcleo, progresso por `Channel`, cancelar apaga o `.tmp` | Kdenlive (`jobs/`), igual à conversão do Jay-A. |
 | Instância única | `tauri-plugin-single-instance`, que entrega os arquivos do segundo lançamento | "Abrir com" num arquivo com o Jay-E aberto abre uma aba, não outra janela. |
@@ -103,7 +103,7 @@ Jay-E/
 │     ├─ image.rs                # 3 ✅: decodificar com limites, edições, ajustes, codificar, converter
 │     ├─ doc/                    # 4 ✅: mod.rs (o modelo), xml.rs, docx.rs (ler e gravar), odt.rs, rtf.rs,
 │     │                          # markdown.rs (ler e gravar), html.rs, text.rs
-│     ├─ video/                  # 5: sondar, cortar e juntar por cópia, Media Foundation
+│     ├─ video/                  # 5 ✅: mp4.rs (cortar e juntar por cópia), mf.rs (converter, quadro)
 │     ├─ latex.rs                # 6: Tectonic
 │     └─ jobs.rs                 # 5/8: fila de tarefas
 ├─ scripts/cdp-eval.mjs          # roda JS dentro do app (depuração remota na 9226)
@@ -205,7 +205,7 @@ Cada etapa termina com algo testável.
 | 2 ✅ | Markdown: CodeMirror + prévia do `pulldown-cmark` limpa pelo `ammonia`, rolagem sincronizada, KaTeX; salvar seguro (codificação, fim de linha, atômico, vigiar); exportar HTML e PDF | abrir, editar e salvar um `.md` em CP1252 com CRLF mantém os dois; `<script>` no Markdown não roda; o PDF exportado abre no leitor da etapa 1 |
 | 3 ✅ | Imagens: editar (cortar, girar, espelhar, redimensionar, ajustes) sem destruir, com desfazer; converter em lote (S3); imagens enormes em tiles | 10 imagens mistas viram WebP e AVIF; uma bomba de descompressão é recusada; uma foto de 100 MP abre em tiles |
 | 4 ✅ | Documentos: o modelo; leitores de DOCX, ODT, RTF, HTML e Markdown; visualização paginada; exportar para PDF, Markdown, HTML e TXT | um DOCX com títulos, listas, tabela e imagem aparece com tudo; DOCX → Markdown → DOCX mantém o texto e os títulos |
-| 5 | Vídeo (S4): cortar e juntar por cópia, extrair quadro, miniaturas na barra de tempo; converter pelo Media Foundation, com fila e cancelar | cortar 10 s de um MP4 de 1 GB leva < 2 s e toca; converter um WebM em MP4 toca no player |
+| 5 ✅ | Vídeo (S4): cortar e juntar por cópia, extrair quadro, miniaturas na barra de tempo; converter pelo Media Foundation, com fila e cancelar | cortar 10 s de um MP4 de 1 GB leva < 2 s e toca; converter um WebM em MP4 toca no player |
 | 6 | LaTeX: CodeMirror + compilar com o Tectonic (baixado na primeira vez, SHA-256), o PDF ao lado no leitor da etapa 1, erros na linha certa | um artigo com fórmulas e bibliografia compila; um erro de sintaxe aponta a linha |
 | 7 | Edição: DOCX e ODT (texto, estilos, listas, tabelas simples, imagens) com ida e volta sem perda; PDF: juntar, separar, reordenar, girar, apagar páginas, anotações, formulários | abrir e salvar um DOCX sem editar dá o mesmo `document.xml` canônico; editado, abre no Word e no LibreOffice; dois PDFs juntados abrem em ambos |
 | 8 | Converter: tela de lote para todos os tipos, com fila, progresso, cancelar e perguntar antes de sobrescrever | lote de 20 arquivos mistos; um corrompido falha sozinho e os outros saem |
@@ -296,6 +296,14 @@ A mesma foto ampliada para 10 000×10 000 (100 MP, JPEG de 3,9 MB): **decodifica
 - **Defeitos achados e corrigidos no caminho:** um parágrafo só com a quebra de página voltava como "parágrafo vazio + quebra"; no RTF, o negrito de `{\b …}` era gravado depois de o grupo fechar e perdia o negrito.
 - **Não visto:** documentos salvos pelo Word em ODT e RTF (a automação do Word travou num diálogo invisível ao salvar; os arquivos de teste vieram do LibreOffice), os diálogos de exportar DOCX, Markdown, HTML e TXT (o conteúdo de cada gravador é o testado), um documento grande (centenas de páginas), o tema claro.
 
+**Etapa 5, medido (2026-11-06):** vídeos de teste: o Big Buck Bunny (CC-BY, do test-videos.co.uk) em MP4/H.264 360p e 720p e em WebM/VP9, e um vídeo do WhatsApp do próprio PC (H.264 + AAC), fora do repositório.
+- **Testes:** `cargo test` no `jay-docs` (60; os 7 novos: tabelas de amostras lidas; o corte começa no quadro-chave e copia os bytes certos, com `moov` antes do `mdat`; juntar põe as partes em sequência com os quadros-chave nos lugares; arquivo cortado no meio e lixo viram erro; cancelar não deixa arquivo; tamanhos pares e frações de taxa de quadros reduzidas para o H.264; arquivo que o Windows não lê vira erro) e no `src-tauri` (7); `npm test` (6, o novo é o relógio "1:02.500").
+- **Corte e junção (Rust):** 32 cópias do 720p juntadas num MP4 de **1 026 MB** em 0,8 s; **cortar 10 s dele levou 42 ms** (a meta era < 2 s), e o quadro em 2:33 do corte decodifica certo no Media Foundation. Cortar o vídeo do WhatsApp: 49 ms; o corte recodificado pelo Media Foundation (H.264 + AAC) prova que o arquivo é lido pelo Windows.
+- **Conversão (Media Foundation):** 720p → 360p em 2,1 s; só o áudio (M4A) em 0,7 s; **WebM/VP9 → MP4 em 1,7 s**, e o quadro de 5 s do MP4 é igual ao do WebM.
+- **Defeitos achados e corrigidos na conversão do WebM:** o decodificador de VP9 do Windows entrega o quadro com o comprimento do buffer em 0 (o codificador recusava "parâmetro incorreto", depois "nenhuma amostra"): um buffer com exatamente um quadro NV12 ganha esse comprimento. A taxa de quadros do WebM vem como 3 000 000 000/100 000 000: reduzida. O tempo das amostras passou a começar em 0.
+- **No app de dev, pela depuração remota:** o MP4 de 1 GB, o WebM, o MP4 convertido dele, o vídeo do WhatsApp e o M4A abrem e tocam (`readyState` ≥ 2 em até 21 ms); o WebM tem o "Cortar" desligado com a explicação; marcar 2:30 e 2:40 pelo teclado (I e O) mostra o trecho na faixa de miniaturas; ver o print. Uma barra de rolagem sobrando foi corrigida.
+- **Não visto:** os diálogos de salvar (cortar, juntar, converter e salvar quadro no app usam o mesmo código medido pelo `cargo run --release --example video_probe`), o progresso e o "Parar" da conversão no app, HEVC, um vídeo com rotação (celular na vertical gravado de lado), o tema claro. O M4A gerado pelo Media Foundation abre como vídeo (a marca do `ftyp` dele não diz M4A) e toca só o som.
+
 ## 9. Riscos e spikes
 
 | # | Spike | Pronto quando |
@@ -303,7 +311,7 @@ A mesma foto ampliada para 10 000×10 000 (100 MP, JPEG de 3,9 MB): **decodifica
 | S1 ✅ | PDFium (`pdfium-render`) contra hayro | feito com 6 PDFs em vez de 30 (seção 8, "Spike S1"). Escolha: hayro |
 | S2 | `PrintToPdfAsync` da WebView2 a partir do Tauri (`webview2-com`), para salvar PDF sem o diálogo | só se a etapa 4 precisar; a etapa 2 usa `window.print()` |
 | S3 ✅ | AVIF, WebP com perda e HEIC | feito: ver "Spike S3" na seção 8. AVIF codifica (ravif, sem assembly); WebP com perda pela libwebp; HEIC fica de fora (só há libheif, LGPL, com libde265, e a WebView2 também não mostra) |
-| S4 | Corte sem recodificar em MP4 e WebM em Rust, e o Media Foundation para converter | um corte toca no player e no VLC; o Media Foundation converte um MOV em MP4 |
+| S4 ✅ | Corte sem recodificar em Rust e conversão pelo Media Foundation | feito: ver a etapa 5 na seção 8. WebM fica para converter (o corte em Rust é de MP4/MOV) |
 | S5 | Tectonic: tamanho do download, tempo da primeira compilação, funcionar sem internet depois | um artigo compila offline na segunda vez |
 
 Riscos:
@@ -320,7 +328,7 @@ Riscos:
 |---|---|---|
 | D1 ✅ | Licença | **MIT**, como a linha. LibreOffice, ONLYOFFICE e Kdenlive só como estudo. |
 | D2 | Planilhas (XLSX/ODS/CSV) e apresentações (PPTX/ODP) | **(a)** fora do v1: abrir mostra "não suportado" · (b) só leitura, depois da etapa 8 (o modelo de blocos não serve; seria um modelo de células) |
-| D3 | Motor de conversão de vídeo | **(a)** Media Foundation (0 MB, só Windows, H.264/HEVC/AAC) · (b) FFmpeg baixado sob demanda (~80 MB, todos os formatos) · (c) os dois: MF primeiro, FFmpeg opcional |
+| D3 ✅ | Motor de conversão de vídeo | **(a)**, feito na etapa 5: Media Foundation (0 MB). FFmpeg baixado sob demanda só se aparecer formato que o Windows não leia |
 | D4 ✅ | Editor de Markdown | **(a)**, feito na etapa 2: código + prévia (com os modos Código, Lado a lado e Prévia). WYSIWYG por blocos, como o Muya, depois, se fizer falta |
 | D5 | Leitores num processo à parte | Com o hayro (Rust seguro, pânicos capturados): **(a)** no mesmo processo, uma thread por documento · (b) à parte, só se aparecer PDF que prenda o interpretador |
 | D6 | De onde vem o TeX | **(a)** Tectonic baixado na primeira compilação · (b) usar o MiKTeX/TeX Live instalado, se houver, e o Tectonic se não · (c) só o instalado |

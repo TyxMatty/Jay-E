@@ -52,3 +52,12 @@ export function formatSize(bytes) {
   }
   return `${unit === 0 ? value : value.toFixed(1)} ${units[unit]}`;
 }
+
+/** A time in seconds as "1:02.500". */
+export function clock(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '–';
+  const m = Math.floor(seconds / 60);
+  // Rounded first, so 59.9996 s is "1:00.000", not "0:60.000".
+  const ms = Math.round((seconds - m * 60) * 1000);
+  return ms >= 60_000 ? `${m + 1}:00.000` : `${m}:${(ms / 1000).toFixed(3).padStart(6, '0')}`;
+}

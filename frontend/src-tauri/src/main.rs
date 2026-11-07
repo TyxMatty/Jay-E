@@ -8,6 +8,7 @@ mod files;
 mod image;
 mod pdf;
 mod text;
+mod video;
 
 use tauri::{DragDropEvent, Manager, WindowEvent};
 
@@ -40,6 +41,7 @@ fn main() {
         .manage(pdf::Docs::default())
         .manage(image::Images::default())
         .manage(doc::Documents::default())
+        .manage(video::VideoJobs::default())
         .register_asynchronous_uri_scheme_protocol("jaye", pdf::protocol)
         .setup(|app| {
             let args: Vec<String> = std::env::args().collect();
@@ -72,6 +74,12 @@ fn main() {
             doc::doc_open,
             doc::doc_close,
             doc::doc_export,
+            video::video_info,
+            video::video_cut,
+            video::video_join,
+            video::video_convert,
+            video::video_cancel,
+            video::video_frame,
             image::image_open,
             image::image_close,
             image::image_set_edits,

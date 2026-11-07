@@ -6,5 +6,6 @@ pub mod image;
 pub mod markdown;
 pub mod pdf;
 pub mod text;
+pub mod video;
 
 pub use detect::{Kind, detect, detect_bytes};
