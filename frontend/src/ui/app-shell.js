@@ -1,8 +1,9 @@
-// The window: top bar, then the sections (Files, Settings) as tabs.
+// The window: top bar, then the sections (Files, Convert, Settings) as tabs.
 import { h } from './dom.js';
 import { icons } from './icons.js';
 import { createTabs } from './tabs.js';
 import { createFilesPanel } from './files.js';
+import { createConvertPanel } from './convert.js';
 import { createUpdateButton } from './update.js';
 import { createWelcomeModal } from './welcome-modal.js';
 import { shouldShowWelcome } from '../core/welcome.js';
@@ -125,6 +126,7 @@ export function mountApp(root) {
   let welcome = null;
   const items = [
     { key: 'files', label: tabLabel(icons.file, t('Files')), panel: createFilesPanel() },
+    { key: 'convert', label: tabLabel(icons.convert, t('Convert')), panel: createConvertPanel() },
     { key: 'settings', label: tabLabel(icons.settings, t('Settings')), panel: createSettingsPanel({ openWelcome: () => welcome.open() }) },
   ];
   const tabs = createTabs({ idPrefix: 'section', label: t('Sections'), className: 'app-nav', vertical: true, items });

@@ -97,6 +97,7 @@ Duas camadas: o **engine** em Rust ([`crates/jay-docs`](../crates/jay-docs), sem
 | Editar DOCX e ODT | `doc/edit.rs`, `doc/odt_edit.rs`, `ui/docx-editor.js` | A página é montada com as fontes, estilos, margens e páginas do próprio arquivo; cada parágrafo sabe onde está no XML. Salvar reescreve só os parágrafos que mudaram (e o cabeçalho/rodapé, se mudaram); o resto do pacote é copiado byte a byte. Imagens soltas viram flutuantes onde caem. |
 | Editar PDF | `pdf_edit.rs`, `src-tauri/src/pdf_edit.rs`, `ui/pdf-tools.js` | Cada mudança (páginas, anotações, formulário) gera um PDF novo pelo lopdf, que o hayro abre; desfazer volta uma versão; salvar grava a atual. |
 | DOCX, ODT, RTF | `doc/` | Um modelo de documento próprio no meio: cada formato é lido para ele e escrito a partir dele (DOCX, Markdown, HTML, texto). A página mostra numa folha A4; o PDF sai pela impressão da WebView2. |
+| Conversor | `src-tauri/src/convert.rs`, `ui/convert.js` | Uma fila numa thread: cada arquivo vai para o conversor do seu tipo (imagem, documento, PDF para texto, vídeo), é gravado num temporário e renomeado no fim, e conta o resultado sozinho; um erro não para os outros. A pasta é escolhida no Rust. |
 | Vídeo | `video/mp4.rs`, `video/mf.rs` | Cortar e juntar copiando as amostras do MP4, sem recodificar (o `mp4-atom` reescreve as tabelas). Converter e tirar quadro passam pelo Media Foundation do Windows, que usa a GPU quando há. |
 | Atualizações | `src-tauri/src/update.rs` | Ao abrir, confere o release mais novo no GitHub; o instalador só roda se o SHA-256 bater com o do GitHub, como no Jay-H. |
 | Estilos e idioma | `frontend/src/styles`, `locales` | Os estilos Calmo, Neon e Suave do Jay-C, claro ou escuro; inglês ou português. |
@@ -113,13 +114,12 @@ Duas camadas: o **engine** em Rust ([`crates/jay-docs`](../crates/jay-docs), sem
 | 5. Vídeo | Cortar e juntar sem recodificar (10 s de um arquivo de 1 GB em 42 ms); converter em MP4 ou M4A; salvar quadro |
 | Atualizações | Confere o GitHub ao abrir e se atualiza; a CI gera o instalador num tag de versão |
 | 6. LaTeX | Compila com o motor do Tectonic dentro do app: 1,4 s para um artigo com bibliografia (98 s na primeira vez) |
-| 7. Edição (em andamento) | DOCX e ODT editados com a barra de sempre (imagens soltas, tabelas, cabeçalho e rodapé, páginas, Ctrl+Z); PDF: páginas, anotações e formulários |
+| 7. Edição | DOCX e ODT editados com a barra de sempre (imagens soltas, tabelas, cabeçalhos da primeira página e das pares, linha de título repetida, páginas, Ctrl+Z); PDF: páginas, anotações e formulários |
+| 8. Conversor | Uma tela para converter arquivos de todos os tipos numa pasta, um formato por tipo, com fila, progresso, Parar e pergunta antes de substituir; 20 arquivos mistos em 3 s, o estragado falha sozinho |
 
 **Tamanho:** o instalador tem 16,5 MiB, acima da meta de 15 MB por causa do motor do TeX (os dados do ICU são quase tudo).
 
 **Próximas etapas:**
-- **7. Edição (resto):** tudo da lista está feito (o último: cabeçalhos da primeira página e das pares, e a linha de título da tabela repetida); falta fechar a etapa.
-- **8. Conversor:** uma tela de lote para todos os tipos, com fila, progresso, cancelar e perguntar antes de sobrescrever.
 - **9. Release:** associações de arquivo ("Abrir com"), o Jay-E no catálogo do Jay-H, instalar numa máquina limpa.
 
 **Pendências** (a lista completa está no [`ROADMAP.md`](../ROADMAP.md)):

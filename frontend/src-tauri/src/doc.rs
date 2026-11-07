@@ -219,11 +219,24 @@ pub async fn save_as(app: &AppHandle, source: &Path, document: &Document, format
     }
     // The save dialog asks before replacing the file itself.
     let Some(target) = dialog.blocking_save_file().and_then(|p| p.into_path().ok()) else { return Ok(None) };
+    let (document, format, saved) = (document.clone(), format.to_owned(), target.to_string_lossy().into_owned());
+    tauri::async_runtime::spawn_blocking(move || export_to(&document, &format, &target))
+        .await
+        .map_err(|e| DocError::Io { message: e.to_string() })??;
+    Ok(Some(saved))
+}
+
+/// Writes `document` as `format` ("docx", "markdown", "html", "txt") to `target`, through a
+/// temporary file; a Markdown file's pictures go beside it under names that are free. Also used by
+/// the batch converter (convert.rs).
+pub fn export_to(document: &Document, format: &str, target: &Path) -> Result<(), DocError> {
+    let ext = target.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
+    let stem = target.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "document".into());
     let (bytes, images) = match format {
         "docx" => (doc::docx::write(document)?, vec![]),
         "markdown" => {
             let dir = target.parent().unwrap_or(Path::new("."));
-            let base = target.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "document".into());
+            let base = stem.clone();
             // Image files beside the .md never replace existing files: another prefix if needed.
             let mut prefix = base.clone();
             let mut n = 2;
@@ -242,20 +255,17 @@ pub async fn save_as(app: &AppHandle, source: &Path, document: &Document, format
             let title = doc::html::escape(&stem);
             (format!("<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>{title}</title>\n<style>{}</style>\n</head>\n<body>\n<main class=\"markdown\">\n{body}</main>\n</body>\n</html>\n", crate::text::EXPORT_CSS).into_bytes(), vec![])
         }
-        _ => (doc::text::write(document).into_bytes(), vec![]),
+        "txt" => (doc::text::write(document).into_bytes(), vec![]),
+        _ => return Err(DocError::Unsupported),
     };
     let dir = target.parent().map(Path::to_path_buf).unwrap_or_default();
-    tauri::async_runtime::spawn_blocking(move || {
-        for (name, data) in images {
-            std::fs::write(dir.join(name), data)?;
-        }
-        let tmp = target.with_extension(format!("{ext}.jaye-tmp"));
-        std::fs::write(&tmp, bytes)?;
-        std::fs::rename(&tmp, &target).inspect_err(|_| drop(std::fs::remove_file(&tmp)))?;
-        Ok(Some(target.to_string_lossy().into_owned()))
-    })
-    .await
-    .map_err(|e| DocError::Io { message: e.to_string() })?
+    for (name, data) in images {
+        std::fs::write(dir.join(name), data)?;
+    }
+    let tmp = target.with_extension(format!("{ext}.jaye-tmp"));
+    std::fs::write(&tmp, bytes)?;
+    std::fs::rename(&tmp, target).inspect_err(|_| drop(std::fs::remove_file(&tmp)))?;
+    Ok(())
 }
 
 /// An image as a data: URL, for the exported HTML file (one file, nothing beside it).

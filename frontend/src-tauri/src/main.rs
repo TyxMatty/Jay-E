@@ -3,6 +3,7 @@
 // Prevents an additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod convert;
 mod doc;
 mod files;
 mod image;
@@ -52,6 +53,7 @@ fn main() {
         .manage(pdf_edit::PdfEdits::default())
         .manage(image::Images::default())
         .manage(doc::Documents::default())
+        .manage(convert::Batch::default())
         .manage(doc::Editors::default())
         .manage(video::VideoJobs::default())
         .manage(latex::Compiles::default())
@@ -115,6 +117,10 @@ fn main() {
             image::image_save_as,
             image::image_convert,
             image::image_convert_cancel,
+            convert::convert_pick_folder,
+            convert::convert_check,
+            convert::convert_start,
+            convert::convert_cancel,
             update::update_check,
             update::update_download,
             update::update_install,

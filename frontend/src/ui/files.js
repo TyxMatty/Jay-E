@@ -9,6 +9,7 @@ import { t } from '../core/i18n.js';
 /** The open files, for viewers that act on several (image conversion). */
 let openDocs = [];
 export const openImageFiles = () => openDocs.filter((d) => d.file.kind === 'image' && !d.file.error).map((d) => d.file);
+export const openFiles = () => openDocs.filter((d) => !d.file.error).map((d) => d.file);
 export const openVideoFiles = () => openDocs.filter((d) => d.file.kind === 'video' && !d.file.error).map((d) => d.file);
 
 /** Unsaved edits are never dropped without asking. */
