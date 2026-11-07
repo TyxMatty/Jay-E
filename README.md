@@ -6,7 +6,7 @@ A light, open-source desktop app to read, edit and convert documents, images and
 
 <p align="center"><img src="docs/images/latex.png" alt="Jay-E with a LaTeX article open: the source on the left and the compiled PDF on the right, with a bibliography" width="820"></p>
 
-- **PDF, Word, OpenDocument and RTF** that open at once, exported to whatever format you need.
+- **Word, OpenDocument and PDF edited in place:** Word and OpenDocument files on their own pages, fonts and styles, with the usual toolbar; PDFs highlighted, drawn on, filled in and their pages reordered. OpenDocument edited the same way; RTF opens and exports.
 - **Markdown and LaTeX with a preview beside them**, math included, and LaTeX errors that jump to their line.
 - **Photos and videos**: adjust and convert in batches, cut and join video without re-encoding.
 - **No office suite**, no accounts and no ads: one installer that updates itself.

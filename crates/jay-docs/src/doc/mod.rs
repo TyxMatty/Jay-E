@@ -6,9 +6,11 @@
 //! italic…), not page layout: fonts, sizes, colors and positioned boxes are dropped (risk 3).
 
 pub mod docx;
+pub mod edit;
 pub mod html;
 pub mod markdown;
 pub mod odt;
+pub mod odt_edit;
 pub mod rtf;
 pub mod text;
 mod xml;
@@ -124,6 +126,8 @@ pub fn merge_runs(inlines: Vec<Inline>) -> Vec<Inline> {
 pub enum DocError {
     TooBig,
     Unsupported,
+    /// Changed on disk since it was opened: saving would lose those changes.
+    Changed,
     Invalid { message: String },
     Io { message: String },
 }

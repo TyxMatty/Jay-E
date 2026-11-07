@@ -1,9 +1,12 @@
 //! Documents (DOCX, ODT, RTF) for the viewer: read into `jay_docs::doc::Document`, shown as HTML
 //! (escaped in jay_docs), images served by `jaye://localhost/doc/<id>/img/<n>`, and exported to
-//! DOCX, Markdown, HTML or plain text where the person picks.
+//! DOCX, Markdown, HTML or plain text where the person picks. A DOCX can also be edited in place
+//! (`docx_edit_*`, jay_docs::doc::edit): only what changed is rewritten.
 
 use crate::files::OpenedPaths;
+use jay_docs::doc::edit::{Editable, Edits, NewImage, View, open_editor};
 use jay_docs::doc::{self, DocError, Document};
+use jay_docs::text::Stamp;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -52,8 +55,144 @@ pub async fn doc_open(path: PathBuf, format: String, paths: State<'_, OpenedPath
 }
 
 #[tauri::command]
-pub fn doc_close(id: u32, docs: State<Documents>) {
+pub fn doc_close(id: u32, docs: State<Documents>, editors: State<Editors>) {
     docs.open.lock().unwrap().remove(&id);
+    editors.open.lock().unwrap().remove(&id);
+}
+
+/// DOCX files open in the editor: the file, its edit session, its stamp when read or saved, and the
+/// pictures added since (they go into the file on save).
+#[derive(Default)]
+pub struct Editors {
+    open: Mutex<HashMap<u32, (PathBuf, Arc<dyn Editable>, Stamp, Vec<NewImage>)>>,
+}
+
+/// A picture added to the page: its number for the save, where the page loads it, its size (points).
+#[derive(Serialize)]
+pub struct AddedImage {
+    n: usize,
+    url: String,
+    w: f32,
+    h: f32,
+}
+
+/// Picks a picture file and keeps it for the document `id`. `None` if the dialog was cancelled.
+#[tauri::command]
+pub async fn docx_edit_add_image(id: u32, app: AppHandle) -> Result<Option<AddedImage>, DocError> {
+    let dir = app.state::<Editors>().open.lock().unwrap().get(&id).and_then(|e| e.0.parent().map(Path::to_path_buf));
+    let mut dialog = app.dialog().file().add_filter("Images", &["png", "jpg", "jpeg", "gif", "bmp", "webp", "tif", "tiff"]);
+    if let Some(dir) = dir {
+        dialog = dialog.set_directory(dir);
+    }
+    let Some(file) = dialog.blocking_pick_file().and_then(|p| p.into_path().ok()) else { return Ok(None) };
+    let image = tauri::async_runtime::spawn_blocking(move || {
+        if std::fs::metadata(&file)?.len() > 64 << 20 {
+            return Err(DocError::TooBig);
+        }
+        jay_docs::doc::edit::prepare_image(&std::fs::read(&file)?)
+    })
+    .await
+    .map_err(|e| DocError::Io { message: e.to_string() })??;
+    keep_image(&app, id, image).map(Some)
+}
+
+/// A picture pasted on the page (its bytes, as the clipboard had them).
+#[tauri::command]
+pub async fn docx_edit_paste_image(id: u32, bytes: Vec<u8>, app: AppHandle) -> Result<AddedImage, DocError> {
+    if bytes.len() > 64 << 20 {
+        return Err(DocError::TooBig);
+    }
+    let image = tauri::async_runtime::spawn_blocking(move || jay_docs::doc::edit::prepare_image(&bytes)).await.map_err(|e| DocError::Io { message: e.to_string() })??;
+    keep_image(&app, id, image)
+}
+
+/// Keeps a new picture for the save and serves it to the page.
+fn keep_image(app: &AppHandle, id: u32, image: NewImage) -> Result<AddedImage, DocError> {
+    let (w, h) = (image.w, image.h);
+    // Served like the file's own pictures, after them.
+    let docs = app.state::<Documents>();
+    let mut open = docs.open.lock().unwrap();
+    let (path, doc) = open.get(&id).cloned().ok_or(DocError::Io { message: "document closed".into() })?;
+    let mut images = doc.images.clone();
+    images.push(jay_docs::doc::Image { mime: format!("image/{}", image.ext), bytes: image.bytes.clone() });
+    let url = format!("{}doc/{id}/img/{}", base_url(), images.len() - 1);
+    open.insert(id, (path, Arc::new(Document { blocks: vec![], images })));
+    let mut editors = app.state::<Editors>().open.lock().unwrap().get_mut(&id).map(|e| {
+        e.3.push(image);
+        e.3.len() - 1
+    });
+    let n = editors.take().ok_or(DocError::Io { message: "document closed".into() })?;
+    Ok(AddedImage { n, url, w, h })
+}
+
+#[derive(Serialize)]
+pub struct EditorOpened {
+    id: u32,
+    view: View,
+}
+
+fn stamp(path: &Path) -> Result<Stamp, DocError> {
+    jay_docs::text::stamp(path).map_err(|e| DocError::Io { message: format!("{e:?}") })
+}
+
+fn open_session(path: &Path, id: u32) -> Result<(Box<dyn Editable>, Stamp), DocError> {
+    let stamp = stamp(path)?;
+    if stamp.len > doc::MAX_FILE_BYTES {
+        return Err(DocError::TooBig);
+    }
+    let bytes = std::fs::read(path)?;
+    Ok((open_editor(&bytes, &|n| format!("{}doc/{id}/img/{n}", base_url()))?, stamp))
+}
+
+/// Opens a DOCX or ODT in the editor. Its images are served like the viewer's (`doc/<id>/img/<n>`).
+#[tauri::command]
+pub async fn docx_edit_open(path: PathBuf, paths: State<'_, OpenedPaths>, docs: State<'_, Documents>, editors: State<'_, Editors>) -> Result<EditorOpened, DocError> {
+    if !paths.contains(&path) {
+        return Err(DocError::Io { message: "not an opened file".into() });
+    }
+    let id = docs.next.fetch_add(1, Ordering::Relaxed) + 1;
+    let source = path.clone();
+    let (session, stamp) = tauri::async_runtime::spawn_blocking(move || open_session(&source, id)).await.map_err(|e| DocError::Io { message: e.to_string() })??;
+    let view = session.view().clone();
+    docs.open.lock().unwrap().insert(id, (path.clone(), Arc::new(Document { blocks: vec![], images: session.images().to_vec() })));
+    editors.open.lock().unwrap().insert(id, (path, Arc::from(session), stamp, vec![]));
+    Ok(EditorOpened { id, view })
+}
+
+/// Saves the page's changes over the file (atomically), unless another program changed it since
+/// (`force` saves anyway). Returns the saved file as the editor shows it.
+#[tauri::command]
+pub async fn docx_edit_save(id: u32, edits: Edits, force: bool, app: AppHandle) -> Result<View, DocError> {
+    let (path, session, was, images) = app.state::<Editors>().open.lock().unwrap().get(&id).cloned().ok_or(DocError::Io { message: "document closed".into() })?;
+    let target = path.clone();
+    let (next, stamp) = tauri::async_runtime::spawn_blocking(move || {
+        if !force && stamp(&target)? != was {
+            return Err(DocError::Changed);
+        }
+        let bytes = session.save(&edits, &images)?;
+        // What is written has to open again.
+        let next = open_editor(&bytes, &|n| format!("{}doc/{id}/img/{n}", base_url()))?;
+        let tmp = target.with_extension("jaye-tmp");
+        std::fs::write(&tmp, &bytes)?;
+        std::fs::rename(&tmp, &target).inspect_err(|_| drop(std::fs::remove_file(&tmp)))?;
+        Ok((next, stamp(&target)?))
+    })
+    .await
+    .map_err(|e| DocError::Io { message: e.to_string() })??;
+    let view = next.view().clone();
+    app.state::<Documents>().open.lock().unwrap().insert(id, (path.clone(), Arc::new(Document { blocks: vec![], images: next.images().to_vec() })));
+    app.state::<Editors>().open.lock().unwrap().insert(id, (path, Arc::from(next), stamp, vec![]));
+    Ok(view)
+}
+
+/// Exports the saved file (the page saves first) as another format.
+#[tauri::command]
+pub async fn docx_edit_export(id: u32, format: String, app: AppHandle) -> Result<Option<String>, DocError> {
+    let (path, kind) = app.state::<Editors>().open.lock().unwrap().get(&id).map(|e| (e.0.clone(), e.1.format())).ok_or(DocError::Io { message: "document closed".into() })?;
+    let source = path.clone();
+    let document = tauri::async_runtime::spawn_blocking(move || doc::read(&source, kind)).await.map_err(|e| DocError::Io { message: e.to_string() })??;
+    // The exported HTML embeds the images; the Markdown writes them beside it.
+    save_as(&app, &path, &document, &format).await
 }
 
 /// Exports the open document as `format` ("docx", "markdown", "html", "txt") where the person

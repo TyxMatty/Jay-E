@@ -26,6 +26,19 @@ impl Docs {
     fn get(&self, doc: u32) -> Result<Arc<PdfDocument>, String> {
         self.open.lock().unwrap().get(&doc).cloned().ok_or_else(|| "document closed".into())
     }
+
+    /// Keeps an opened document and gives its id.
+    pub fn add(&self, doc: PdfDocument) -> u32 {
+        let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
+        self.open.lock().unwrap().insert(id, Arc::new(doc));
+        id
+    }
+
+    pub fn close(&self, doc: u32) {
+        if let Some(d) = self.open.lock().unwrap().remove(&doc) {
+            d.cancel_search();
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -37,24 +50,24 @@ pub struct Opened {
 
 /// Opens a PDF the person opened before (files.rs): the page can't name any other path.
 #[tauri::command]
-pub async fn pdf_open(path: PathBuf, password: Option<String>, opened: State<'_, OpenedPaths>, docs: State<'_, Docs>) -> Result<Opened, OpenError> {
+pub async fn pdf_open(path: PathBuf, password: Option<String>, opened: State<'_, OpenedPaths>, docs: State<'_, Docs>, edits: State<'_, crate::pdf_edit::PdfEdits>) -> Result<Opened, OpenError> {
     if !opened.contains(&path) {
         return Err(OpenError::Io("not an opened file".into()));
     }
-    let doc = tauri::async_runtime::spawn_blocking(move || PdfDocument::open(&path, password.as_deref()))
+    let source = path.clone();
+    let doc = tauri::async_runtime::spawn_blocking(move || PdfDocument::open(&source, password.as_deref()))
         .await
         .map_err(|e| OpenError::Io(e.to_string()))??;
-    let id = docs.next.fetch_add(1, Ordering::Relaxed) + 1;
     let pages = doc.info.pages.clone();
-    docs.open.lock().unwrap().insert(id, Arc::new(doc));
+    let id = docs.add(doc);
+    edits.paths.lock().unwrap().insert(id, path);
     Ok(Opened { doc: id, pages })
 }
 
 #[tauri::command]
-pub fn pdf_close(doc: u32, docs: State<Docs>) {
-    if let Some(d) = docs.open.lock().unwrap().remove(&doc) {
-        d.cancel_search();
-    }
+pub fn pdf_close(doc: u32, docs: State<Docs>, app: tauri::AppHandle) {
+    docs.close(doc);
+    crate::pdf_edit::forget(&app, doc);
 }
 
 #[tauri::command]

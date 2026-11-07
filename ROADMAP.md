@@ -18,6 +18,11 @@ Every stage ends with something testable. The full plan, with the "done when" ch
 ## Next
 
 - [ ] **7. Editing:** DOCX and ODT (text, styles, lists, simple tables, images) with a lossless round trip; PDF: merge, split, reorder, rotate and delete pages, annotations, forms.
+  - [x] DOCX edited in place with a word-processor toolbar, on the file's own page, fonts and styles; saving rewrites only the changed paragraphs (Word opens the result without repairs).
+  - [x] ODT the same way (same toolbar, pictures, tables, lists, header and footer); RTF stays read-only (export to DOCX).
+  - [x] Pictures resized and moved freely anywhere on the page; inserting pictures (file or Ctrl+V) and tables; headers and footers; the page split into the file's pages; Ctrl+Z/Ctrl+Y for everything; pasting with formatting.
+  - [x] PDF: reorder, rotate, delete, insert another PDF and save pages apart; highlight, draw, notes, text, erase; fill forms; undo and save.
+  - [ ] Rows and columns in existing tables; adding a header where there's none; first-page headers; tables split across pages.
 - [ ] **8. Converter:** one batch screen for every kind of file, with a queue, progress, cancel and asking before overwriting. A corrupted file fails on its own and the others still convert.
 - [ ] **9. Release:** NSIS installer in `%LOCALAPPDATA%\Jay-E`, file associations ("Open with"), Jay-E in Jay-H's catalog. Install on a clean machine and open a PDF with a double click.
 

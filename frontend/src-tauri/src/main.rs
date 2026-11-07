@@ -8,6 +8,7 @@ mod files;
 mod image;
 mod latex;
 mod pdf;
+mod pdf_edit;
 mod text;
 mod update;
 mod video;
@@ -46,8 +47,10 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .manage(files::OpenedPaths::default())
         .manage(pdf::Docs::default())
+        .manage(pdf_edit::PdfEdits::default())
         .manage(image::Images::default())
         .manage(doc::Documents::default())
+        .manage(doc::Editors::default())
         .manage(video::VideoJobs::default())
         .manage(latex::Compiles::default())
         .manage(update::Downloaded::default())
@@ -74,6 +77,13 @@ fn main() {
             pdf::pdf_links,
             pdf::pdf_search,
             pdf::pdf_cancel_search,
+            pdf_edit::pdf_edit,
+            pdf_edit::pdf_edit_undo,
+            pdf_edit::pdf_edit_insert,
+            pdf_edit::pdf_edit_extract,
+            pdf_edit::pdf_edit_save,
+            pdf_edit::pdf_annotations,
+            pdf_edit::pdf_fields,
             text::text_open,
             text::text_stamp,
             text::text_save,
@@ -83,6 +93,11 @@ fn main() {
             doc::doc_open,
             doc::doc_close,
             doc::doc_export,
+            doc::docx_edit_open,
+            doc::docx_edit_save,
+            doc::docx_edit_add_image,
+            doc::docx_edit_paste_image,
+            doc::docx_edit_export,
             video::video_info,
             video::video_cut,
             video::video_join,

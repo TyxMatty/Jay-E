@@ -12,6 +12,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   markdownMode: 'split',
   /** The image "Save as / convert" options last used (ui/image-convert.js). */
   imageExport: { format: 'webp', quality: 80, lossless: false, maxSide: null },
+  /** The "Welcome!" tour (core/welcome.js) already opened by itself once; Settings › About reopens it. */
+  welcomeSeen: false,
 });
 
 function load() {

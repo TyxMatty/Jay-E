@@ -30,6 +30,7 @@ mp4-atom = "0.17"
 # this feature because its C libraries (ICU, FreeType, Graphite2, fontconfig) come from vcpkg.
 tectonic = { version = "0.17", optional = true }
 tectonic_bridge_core = { version = "0.5", optional = true }
+lopdf = "0.47.0"
 
 [features]
 tex = ["dep:tectonic", "dep:tectonic_bridge_core"]

@@ -6,6 +6,7 @@ pub mod image;
 pub mod latex;
 pub mod markdown;
 pub mod pdf;
+pub mod pdf_edit;
 pub mod text;
 pub mod video;
 

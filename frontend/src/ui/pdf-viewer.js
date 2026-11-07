@@ -6,6 +6,7 @@ import { h } from './dom.js';
 import { icons } from './icons.js';
 import { t } from '../core/i18n.js';
 import { openPdf, closePdf, setVisible, pageText, pageLinks, openLink, search, cancelSearch, fetchPage } from '../core/pdf.js';
+import { createPdfTools } from './pdf-tools.js';
 
 /** CSS pixels per point at 100%: a point is 1/72 in, a CSS pixel 1/96 in. */
 const PX_PER_PT = 96 / 72;
@@ -23,12 +24,19 @@ export async function createPdfViewer(file) {
   root.dispose = () => {
     disposed = true;
   };
+  // Editing state that outlives the rebuilds after each change (ui/pdf-tools.js).
+  const editor = {};
+  root.isDirty = () => !!editor.dirty;
+  const rebuild = (edited) => {
+    root.cleanupViewer?.();
+    root.replaceChildren(...buildViewer(root, edited, editor, rebuild));
+  };
 
   async function open(password) {
     try {
       const pdf = await openPdf(file.path, password);
       if (disposed) return closePdf(pdf.doc);
-      root.replaceChildren(...buildViewer(root, pdf));
+      root.replaceChildren(...buildViewer(root, pdf, editor, rebuild));
     } catch (error) {
       if (error === 'password') return root.replaceChildren(passwordForm(file, open, password != null));
       const message = error === 'invalid' ? t("This isn't a PDF Jay-E can read.") : error === 'toobig' ? t('This PDF is too big (1 GB max).') : (error?.io ?? String(error));
@@ -53,11 +61,11 @@ function passwordForm(file, open, wrong) {
   return form;
 }
 
-function buildViewer(root, { doc, pages: sizes }) {
+function buildViewer(root, { doc, pages: sizes }, editor, rebuild) {
   const count = sizes.length;
   const maxWidth = Math.max(...sizes.map(([w]) => w));
-  /** 'width' | 'page' | a number (1 = 100%). */
-  let zoom = 'width';
+  /** 'width' | 'page' | a number (1 = 100%); after an edit, as it was. */
+  let zoom = editor.view?.zoom ?? 'width';
   let scale = 1; // CSS px per point
   const tops = new Float64Array(count); // each page's top in CSS px, inside .pdf-pages
   let current = 0;
@@ -202,6 +210,7 @@ function buildViewer(root, { doc, pages: sizes }) {
     p.hitLayer = h('div', { class: 'pdf-hits', 'aria-hidden': 'true' });
     p.el.append(textLayer, p.hitLayer, linkLayer);
     paintHits(p);
+    tools.layer(p);
   }
 
   // ----- Navigation and zoom -----
@@ -220,6 +229,7 @@ function buildViewer(root, { doc, pages: sizes }) {
     zoom = next;
     layout();
     scroller.scrollTop = tops[page] + within * scale - anchorY;
+    editor.view = { zoom, top: scroller.scrollTop };
     scheduleDraw(150);
   }
 
@@ -360,6 +370,7 @@ function buildViewer(root, { doc, pages: sizes }) {
     'scroll',
     () => {
       lastTop = scroller.scrollTop;
+      editor.view = { zoom, top: lastTop };
       // At most one update per frame, however many scroll events arrive.
       if (!framePending) {
         framePending = true;
@@ -384,6 +395,7 @@ function buildViewer(root, { doc, pages: sizes }) {
   );
   root.addEventListener('keydown', (e) => {
     if (!e.ctrlKey || e.altKey) return;
+    if (tools.key(e)) return;
     const actions = { f: () => searchInput.focus(), '=': () => zoomStep(1), '+': () => zoomStep(1), '-': () => zoomStep(-1), 0: () => setZoom('width') };
     const action = actions[e.key];
     if (action) {
@@ -398,6 +410,8 @@ function buildViewer(root, { doc, pages: sizes }) {
       // First time: draw at once (the first page is what opening a PDF waits for).
       laidOut = true;
       layout();
+      // Rebuilt after an edit: back where it was.
+      if (editor.view) scroller.scrollTop = editor.view.top;
       return update();
     }
     if (!scroller.scrollTop && lastTop) scroller.scrollTop = lastTop;
@@ -405,15 +419,23 @@ function buildViewer(root, { doc, pages: sizes }) {
     setZoom(zoom, 0);
   }).observe(scroller);
 
+  // ----- Editing -----
+  const tools = createPdfTools({ doc, sizes, pages, scale: () => scale, scroller, editor, rebuild });
+
   const dispose = root.dispose;
   root.dispose = () => {
     dispose();
     thumbs.dispose();
     closePdf(doc).catch(() => {});
   };
+  // Replaced by an edited version: this build's document is already closed by Rust.
+  root.cleanupViewer = () => {
+    thumbs.dispose();
+    cancelSearch(doc).catch(() => {});
+  };
 
   queueMicrotask(() => scroller.focus({ preventScroll: true }));
-  return [toolbar, h('div', { class: 'pdf-body' }, thumbs.el, scroller)];
+  return [toolbar, tools.bar, h('div', { class: 'pdf-body' }, thumbs.el, scroller, tools.organizer)];
 }
 
 /** The thumbnails column: drawn when scrolled into view, the current page marked. */

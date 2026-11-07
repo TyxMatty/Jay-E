@@ -291,7 +291,7 @@ fn read_image(frame: &Node, ctx: &mut Ctx) -> Option<Inline> {
 }
 
 /// An ODF length ("2.5cm", "1in", "12pt", "20mm") in points.
-fn length_pt(s: &str) -> Option<f32> {
+pub(super) fn length_pt(s: &str) -> Option<f32> {
     let n = s.trim_end_matches(|c: char| c.is_ascii_alphabetic());
     let v: f32 = n.parse().ok()?;
     let unit = &s[n.len()..];

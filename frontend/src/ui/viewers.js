@@ -29,7 +29,10 @@ export async function createViewer(file) {
   try {
     // Loaded when first needed, so starting the app doesn't parse the editor.
     if (file.kind === 'pdf') return await (await import('./pdf-viewer.js')).createPdfViewer(file);
-    if (file.kind === 'document') return await (await import('./doc-viewer.js')).createDocViewer(file);
+    // Word and OpenDocument files are edited in place; the other documents are shown (and exported).
+    const docViewer = async () => (await import('./doc-viewer.js')).createDocViewer(file);
+    if (file.kind === 'document' && (file.format === 'docx' || file.format === 'odt')) return await (await import('./docx-editor.js')).createDocxEditor(file, docViewer);
+    if (file.kind === 'document') return await docViewer();
     if (['text', 'markdown', 'latex'].includes(file.kind)) return await (await import('./text-editor.js')).createTextEditor(file);
     const url = await fileUrl(file);
     // Rust-decoded editor; formats it can't decode (AVIF, SVG) are shown by the WebView instead.

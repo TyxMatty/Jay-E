@@ -4,6 +4,8 @@ import { icons } from './icons.js';
 import { createTabs } from './tabs.js';
 import { createFilesPanel } from './files.js';
 import { createUpdateButton } from './update.js';
+import { createWelcomeModal } from './welcome-modal.js';
+import { shouldShowWelcome } from '../core/welcome.js';
 import { toggleTheme, currentTheme } from './theme.js';
 import { settings } from '../store/settings.js';
 import { resolveStyle } from '../core/style.js';
@@ -52,7 +54,7 @@ function radioGroup(key, attrs, options, renderOption) {
   return group;
 }
 
-function createSettingsPanel() {
+function createSettingsPanel({ openWelcome }) {
   // Each style option is a small preview drawn with that style's own tokens (styles/theme.css).
   const styleGroup = radioGroup(
     'style',
@@ -111,6 +113,7 @@ function createSettingsPanel() {
         { class: 'field' },
         h('p', { class: 'hint' }, t('Jay-E {version}', { version: __APP_VERSION__ })),
         h('p', { class: 'hint' }, t('Documents, images and video of the Jay line: read, edit and convert.')),
+        h('div', {}, h('button', { type: 'button', class: 'btn btn-secondary', onClick: openWelcome }, t('Show the welcome tour'))),
       ),
     ),
   );
@@ -119,11 +122,13 @@ function createSettingsPanel() {
 const tabLabel = (icon, text) => h('span', { class: 'tab-label' }, h('span', { class: 'tab-icon', html: icon }), text);
 
 export function mountApp(root) {
+  let welcome = null;
   const items = [
     { key: 'files', label: tabLabel(icons.file, t('Files')), panel: createFilesPanel() },
-    { key: 'settings', label: tabLabel(icons.settings, t('Settings')), panel: createSettingsPanel() },
+    { key: 'settings', label: tabLabel(icons.settings, t('Settings')), panel: createSettingsPanel({ openWelcome: () => welcome.open() }) },
   ];
   const tabs = createTabs({ idPrefix: 'section', label: t('Sections'), className: 'app-nav', vertical: true, items });
+  welcome = createWelcomeModal({ openSettings: () => tabs.select('settings') });
 
   const header = h(
     'header',
@@ -138,6 +143,11 @@ export function mountApp(root) {
     if (next.language !== prev.language) location.reload();
   });
 
-  root.replaceChildren(header, h('div', { class: 'app-body' }, tabs.list, h('div', { class: 'app-panels' }, items.map((i) => i.panel))));
+  root.replaceChildren(header, h('div', { class: 'app-body' }, tabs.list, h('div', { class: 'app-panels' }, items.map((i) => i.panel))), welcome.element);
   tabs.select('files');
+  // The tour opens by itself once; Settings › About opens it again.
+  if (shouldShowWelcome(settings.get())) {
+    settings.update({ welcomeSeen: true });
+    welcome.open();
+  }
 }

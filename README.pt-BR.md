@@ -6,7 +6,7 @@ App leve e open-source para ler, editar e converter documentos, imagens e vídeo
 
 <p align="center"><img src="docs/images/latex.png" alt="O Jay-E com um artigo em LaTeX aberto: o código à esquerda e o PDF compilado à direita, com bibliografia" width="820"></p>
 
-- **PDF, Word, OpenDocument e RTF** abrindo na hora, e exportados para o formato que você precisar.
+- **Word, OpenDocument e PDF editados no lugar:** arquivos do Word e do OpenDocument nas páginas, fontes e estilos deles, com a barra de sempre; PDFs com destaque, desenho, formulário preenchido e páginas reordenadas. OpenDocument editado do mesmo jeito; RTF abre e exporta.
 - **Markdown e LaTeX com prévia ao lado**, fórmulas incluídas, e os erros do LaTeX levando à linha.
 - **Fotos e vídeos**: ajustar e converter em lote, cortar e juntar vídeo sem recodificar.
 - **Sem pacote de escritório**, sem contas e sem anúncios: um instalador só, que se atualiza sozinho.

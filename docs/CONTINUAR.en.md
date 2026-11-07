@@ -94,6 +94,8 @@ Two layers: the **engine** in Rust ([`crates/jay-docs`](../crates/jay-docs), no 
 | Markdown and text | `text.rs`, `markdown.rs` | Saves in the file's own encoding and line endings, atomically, and warns if it changed on disk. The preview is made in Rust (pulldown-cmark, math as MathML) and cleaned by ammonia, so `<script>` in Markdown doesn't run. |
 | LaTeX | `latex.rs`, `src-tauri/src/latex.rs` | Tectonic's engine (XeTeX) is built into `jay-e.exe`. To compile, the app runs itself with `--jaye-tex` in a separate process, with no window, in untrusted mode, with a time limit and Stop. Only the TeX packages come from the internet, the first time (42 MB for an article), and are cached. Errors become a list that jumps to the line. |
 | Images | `image.rs` | Decoded in Rust, with limits against decompression bombs. Edits are a list applied over the original (so they can be undone); conversion uses libwebp for WebP and ravif for AVIF. |
+| Editing DOCX and ODT | `doc/edit.rs`, `doc/odt_edit.rs`, `ui/docx-editor.js` | The page is built with the file's own fonts, styles, margins and pages; each paragraph knows where it is in the XML. Saving rewrites only the paragraphs that changed (and the header/footer, if they did); the rest of the package is copied byte for byte. Pictures dragged loose float where they're dropped. |
+| Editing PDF | `pdf_edit.rs`, `src-tauri/src/pdf_edit.rs`, `ui/pdf-tools.js` | Each change (pages, annotations, form) makes a new PDF with lopdf, which hayro opens; undo goes back a version; saving writes the current one. |
 | DOCX, ODT, RTF | `doc/` | Jay-E's own document model in the middle: each format is read into it and written from it (DOCX, Markdown, HTML, text). The page shows it on an A4 sheet; PDF comes from WebView2's printing. |
 | Video | `video/mp4.rs`, `video/mf.rs` | Cutting and joining copy the MP4's samples without re-encoding (`mp4-atom` rewrites the tables). Converting and saving frames go through Windows' Media Foundation, which uses the GPU when there is one. |
 | Updates | `src-tauri/src/update.rs` | At startup, checks the latest release on GitHub; the installer only runs if its SHA-256 matches GitHub's, as in Jay-H. |
@@ -111,11 +113,12 @@ Two layers: the **engine** in Rust ([`crates/jay-docs`](../crates/jay-docs), no 
 | 5. Video | Cut and join without re-encoding (10 s out of a 1 GB file in 42 ms); convert to MP4 or M4A; save frames |
 | Updates | Checks GitHub at startup and updates itself; CI builds the installer on a version tag |
 | 6. LaTeX | Compiles with Tectonic's engine inside the app: 1.4 s for an article with a bibliography (98 s the first time) |
+| 7. Editing (in progress) | DOCX and ODT edited with the usual toolbar (loose pictures, tables, header and footer, pages, Ctrl+Z); PDF: pages, annotations and forms |
 
 **Size:** the installer is 16.5 MiB, above the 15 MB goal because of the TeX engine (ICU's data is most of it).
 
 **Next stages:**
-- **7. Editing:** DOCX and ODT with a lossless round trip; PDF: merge, split, reorder, rotate and delete pages, annotations and forms.
+- **7. Editing (the rest):** rows and columns in existing tables; adding a header where there's none.
 - **8. Converter:** one batch screen for every kind of file, with a queue, progress, cancel and asking before overwriting.
 - **9. Release:** file associations ("Open with"), Jay-E in Jay-H's catalog, installing on a clean machine.
 

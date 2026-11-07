@@ -13,6 +13,9 @@ pub struct Node {
     pub name: String,
     pub attrs: Vec<(String, String)>,
     pub children: Vec<Child>,
+    /// Where the element is in the parsed bytes, start tag to end tag (the DOCX editor copies
+    /// what it didn't change from there, byte for byte).
+    pub span: std::ops::Range<usize>,
 }
 
 #[derive(Debug)]
@@ -60,27 +63,33 @@ fn local(name: &str) -> String {
 /// Parses `bytes` into its root element.
 pub fn parse(bytes: &[u8]) -> Result<Node, DocError> {
     let mut reader = Reader::from_reader(bytes);
-    reader.config_mut().expand_empty_elements = true;
     let mut stack: Vec<Node> = vec![Node::default()];
     let mut nodes = 0usize;
     let mut buf = Vec::new();
     loop {
+        let at = reader.buffer_position() as usize;
         let event = reader.read_event_into(&mut buf).map_err(|e| invalid(format!("XML: {e}")))?;
+        let end = reader.buffer_position() as usize;
         match event {
-            Event::Start(start) => {
+            Event::Start(ref start) | Event::Empty(ref start) => {
                 nodes += 1;
                 if stack.len() > MAX_DEPTH || nodes > MAX_NODES {
                     return Err(DocError::TooBig);
                 }
-                let mut node = Node { name: local(start.name().as_ref()), ..Default::default() };
+                let mut node = Node { name: local(start.name().as_ref()), span: at..end, ..Default::default() };
                 for attr in start.attributes().flatten() {
                     let value = attr.normalized_value(quick_xml::XmlVersion::Implicit1_0).map(|v| v.into_owned()).unwrap_or_else(|_| attr.value.to_string());
                     node.attrs.push((local(attr.key.as_ref()), value));
                 }
-                stack.push(node);
+                if matches!(event, Event::Empty(_)) {
+                    stack.last_mut().ok_or_else(|| invalid("XML: unbalanced"))?.children.push(Child::Node(node));
+                } else {
+                    stack.push(node);
+                }
             }
             Event::End(_) => {
-                let node = stack.pop().ok_or_else(|| invalid("XML: unbalanced"))?;
+                let mut node = stack.pop().ok_or_else(|| invalid("XML: unbalanced"))?;
+                node.span.end = end;
                 stack.last_mut().ok_or_else(|| invalid("XML: unbalanced"))?.children.push(Child::Node(node));
             }
             Event::Text(text) => push_text(&mut stack, &text.xml10_content()),
@@ -130,6 +139,16 @@ mod tests {
         assert_eq!(p.attr("val"), Some("a&b"));
         assert_eq!(p.text(), "A < B é<raw>");
         assert!(root.find("t").is_some());
+    }
+
+    #[test]
+    fn spans_cover_each_element() {
+        let src = br#"<?xml version="1.0"?><a><b x="1">hi</b><c/></a>"#;
+        let root = parse(src).unwrap();
+        let s = |n: &Node| std::str::from_utf8(&src[n.span.clone()]).unwrap().to_owned();
+        assert_eq!(s(&root), r#"<a><b x="1">hi</b><c/></a>"#);
+        assert_eq!(s(root.child("b").unwrap()), r#"<b x="1">hi</b>"#);
+        assert_eq!(s(root.child("c").unwrap()), "<c/>");
     }
 
     #[test]

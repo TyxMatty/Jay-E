@@ -582,7 +582,7 @@ fn abstract_num(id: u32, ordered: bool) -> String {
     s
 }
 
-fn drawing(rid: &str, id: u32, cx: u64, cy: u64) -> String {
+pub(crate) fn drawing(rid: &str, id: u32, cx: u64, cy: u64) -> String {
     format!(
         "<w:r><w:drawing><wp:inline distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\"><wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:docPr id=\"{id}\" name=\"Picture {id}\"/>\
 <a:graphic xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">\
