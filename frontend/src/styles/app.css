@@ -1597,3 +1597,66 @@ fieldset > h3 {
   width: 100%;
   accent-color: var(--accent);
 }
+
+/* ---------- LaTeX ---------- */
+
+.latex-pane {
+  display: flex;
+  padding: 0;
+}
+
+.latex-pane > .pdf-viewer {
+  flex: 1;
+  min-width: 0;
+}
+
+.latex-status {
+  margin: 0;
+  max-width: 40ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.latex-messages {
+  flex: none;
+  max-height: 30%;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.latex-message {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  padding: 6px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.latex-message:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.latex-message:disabled {
+  cursor: default;
+}
+
+.latex-line {
+  flex: none;
+  min-width: 5.5em;
+  font-weight: 700;
+  color: var(--danger);
+  font-variant-numeric: tabular-nums;
+}
+
+.latex-message[data-tone='warning'] .latex-line {
+  color: var(--warning);
+}

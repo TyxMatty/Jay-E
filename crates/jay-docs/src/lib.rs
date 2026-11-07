@@ -3,6 +3,7 @@
 pub mod detect;
 pub mod doc;
 pub mod image;
+pub mod latex;
 pub mod markdown;
 pub mod pdf;
 pub mod text;

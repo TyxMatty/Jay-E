@@ -14,6 +14,7 @@ import { t } from '../core/i18n.js';
 import { settings } from '../store/settings.js';
 import { openText, fileStamp, saveText, renderMarkdown, exportHtml, sameStamp } from '../core/text.js';
 import { openLink } from '../core/pdf.js';
+import { createLatexPane } from './latex-pane.js';
 
 /** jay_docs::text::Encoding as serialized. */
 const ENCODING_NAMES = { utf8: 'UTF-8', 'utf8-bom': 'UTF-8 BOM', 'utf16-le': 'UTF-16 LE', 'utf16-be': 'UTF-16 BE', windows1252: 'Windows-1252' };
@@ -57,6 +58,7 @@ export async function createTextEditor(file) {
   }
 
   const isMarkdown = file.kind === 'markdown';
+  const isLatex = file.kind === 'latex';
   let { encoding, lineEnding, stamp } = doc;
   let saved; // the document as last read or saved
   let force = false; // next save overwrites changes made elsewhere (the person chose to keep theirs)
@@ -98,7 +100,7 @@ export async function createTextEditor(file) {
         highlightSelectionMatches(),
         EditorView.lineWrapping,
         EditorView.contentAttributes.of({ 'aria-label': file.name }),
-        keymap.of([{ key: 'Mod-s', run: () => (save(), true) }, indentWithTab, ...defaultKeymap, ...historyKeymap, ...searchKeymap]),
+        keymap.of([{ key: 'Mod-s', run: () => (save(), true) }, { key: 'Mod-Enter', run: () => (latex?.compile(), true) }, indentWithTab, ...defaultKeymap, ...historyKeymap, ...searchKeymap]),
         isMarkdown ? markdown() : [],
         syntaxHighlighting(highlight),
         theme,
@@ -155,14 +157,27 @@ export async function createTextEditor(file) {
   }
   view.scrollDOM.addEventListener('scroll', () => requestAnimationFrame(syncPreview), { passive: true });
 
-  // ----- Modes (Markdown only): code, split, preview -----
-  let mode = isMarkdown ? (settings.get().markdownMode) : 'code';
-  const body = h('div', { class: 'editor-body' }, editorPane, isMarkdown ? preview : null);
+  // ----- LaTeX: the PDF beside, the messages below -----
+  const latex = isLatex
+    ? createLatexPane(file, {
+        getText: () => view.state.doc.toString(),
+        isDirty: () => isDirty(),
+        jumpTo: (n) => {
+          const line = view.state.doc.line(Math.min(Math.max(n, 1), view.state.doc.lines));
+          view.dispatch({ selection: { anchor: line.from, head: line.to }, scrollIntoView: true });
+          view.focus();
+        },
+      })
+    : null;
+
+  // ----- Modes (Markdown and LaTeX): code, split, preview -----
+  let mode = isMarkdown || isLatex ? settings.get().markdownMode : 'code';
+  const body = h('div', { class: 'editor-body' }, editorPane, isMarkdown ? preview : (latex?.pane ?? null));
   const applyMode = () => {
     body.dataset.mode = mode;
     if (mode !== 'code') syncPreview();
   };
-  const modeGroup = isMarkdown
+  const modeGroup = isMarkdown || isLatex
     ? h(
         'div',
         { class: 'segmented', role: 'radiogroup', 'aria-label': t('View') },
@@ -248,6 +263,7 @@ export async function createTextEditor(file) {
       dirtyMark.hidden = !isDirty();
       saveButton.disabled = !isDirty();
       hideBanner();
+      latex?.compile(); // saving a .tex refreshes its PDF
     } catch (error) {
       saveButton.disabled = false;
       if (error?.kind === 'changed') {
@@ -322,17 +338,18 @@ export async function createTextEditor(file) {
     'div',
     { class: 'doc-toolbar', role: 'toolbar', 'aria-label': t('Editor tools') },
     modeGroup,
-    file.kind === 'latex' ? h('span', { class: 'hint' }, t('The PDF preview of LaTeX arrives in stage {stage}.', { stage: 6 })) : null,
+    ...(latex?.buttons ?? []),
     h('span', { class: 'editor-status' }, dirtyMark, statusText),
     ...exportButtons,
     saveButton,
   );
-  root.append(toolbar, banner, body);
+  root.append(toolbar, banner, body, latex?.messages ?? null);
   applyMode();
   if (isMarkdown) render();
 
   root.isDirty = isDirty;
   root.dispose = () => {
+    latex?.dispose();
     clearInterval(timer);
     removeEventListener('focus', checkOutside);
     view.destroy();

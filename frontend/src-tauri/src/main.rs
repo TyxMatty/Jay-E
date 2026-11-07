@@ -6,6 +6,7 @@
 mod doc;
 mod files;
 mod image;
+mod latex;
 mod pdf;
 mod text;
 mod update;
@@ -43,6 +44,7 @@ fn main() {
         .manage(image::Images::default())
         .manage(doc::Documents::default())
         .manage(video::VideoJobs::default())
+        .manage(latex::Compiles::default())
         .manage(update::Downloaded::default())
         .register_asynchronous_uri_scheme_protocol("jaye", pdf::protocol)
         .setup(|app| {
@@ -82,6 +84,11 @@ fn main() {
             video::video_convert,
             video::video_cancel,
             video::video_frame,
+            latex::latex_status,
+            latex::latex_install,
+            latex::latex_compile,
+            latex::latex_cancel,
+            latex::latex_save_pdf,
             image::image_open,
             image::image_close,
             image::image_set_edits,
