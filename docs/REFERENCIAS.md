@@ -1,4 +1,4 @@
-# Jay-E — Estudo do LibreOffice, ONLYOFFICE, MarkText, PhotoCraft e Kdenlive
+# Jay-E — Estudo do LibreOffice, ONLYOFFICE, MarkText, PhotoCraft, Kdenlive e OpenShot
 
 Notas da leitura do código de cinco projetos open-source, feita a pedido do usuário antes de escrever o Jay-E. O Jay-E é **MIT** (D1). De LibreOffice (MPL-2.0/LGPL), ONLYOFFICE (AGPL-3.0) e Kdenlive (GPL-3.0) saem ideias, organização e números, **nunca código**. MarkText (MIT) e PhotoCraft (MIT/Apache-2.0) têm licença compatível; mesmo assim, só ideias por enquanto, e um trecho copiado de um deles leva o aviso de licença junto. Os caminhos citados são dos repositórios deles.
 
@@ -130,7 +130,26 @@ Editor de vídeo do KDE, em C++/Qt. O trabalho pesado é do **MLT** (decodificar
 - Do Kdenlive vêm: edição não destrutiva (lista de cortes, o original não muda), tarefas numa fila com progresso e cancelar, conversão em outro processo, miniaturas e forma de onda calculadas em segundo plano, e o desfazer como pares de funções.
 - O motor de vídeo é a decisão mais pesada (D3): o FFmpeg tem 80–130 MB; o **Media Foundation** já vem no Windows (H.264, HEVC com extensão, AAC, MP4) e não pesa nada no instalador.
 
-## 6. O que o Jay-E adota
+## 6. Ferramentas para a etapa 9: PhotoCraft e OpenShot (2026-11-07)
+
+Lidos a pedido do usuário para escolher as ferramentas da etapa 9: o README do PhotoCraft (`storytold/photocraft`, MIT ou Apache-2.0) e o README e a página de recursos do OpenShot (`OpenShot/openshot-qt`, **GPL-3.0**). Do OpenShot saem só ideias, nunca código; do PhotoCraft, um trecho copiado leva o aviso de licença junto (seção 4).
+
+### 6.1 PhotoCraft: o que ele tem
+
+Um editor de fotos em Rust puro (egui por cima de um modelo de documento e um motor de comandos, 24 crates), alfa, que reimplementa o conjunto do Photoshop: 68 ferramentas (seleção, corte e corte em perspectiva, retoque com remover, pincel corretivo, olhos vermelhos, pintura, desfoque/nitidez/subexposição local, vetores, formas, texto), 16 ajustes que também são camadas (curvas por canal, níveis com histograma, preto e branco, mixer de canais, mapa de gradiente, filtro de foto, cor seletiva, LUT `.cube`/`.3dl`/`.look`, vibração, matiz/saturação, sombras/realces, automáticos de tom, contraste e cor), filtros com prévia ao vivo (desfoques, nitidez, reduzir ruído, distorções, estilizar), camadas, máscaras e estilos, gerenciamento de cor ICC, PSD de ida e volta, e um "Exportar como" com prévia e o tamanho do arquivo antes de salvar. Desenho: tiles esparsos de 256×256 com cópia na escrita (desfazer barato), um compositor na GPU (wgpu) conferido contra um na CPU, filtros em várias threads (desfoque grande por somas corridas), 500+ comandos num registro só (interface, linha de comando, JSON). Ele mesmo diz que IA e tipografia ainda são fracas.
+
+### 6.2 OpenShot: o que ele tem
+
+Editor de vídeo em Python/Qt sobre a libopenshot (C++) e o FFmpeg: trilhas sem limite, linha do tempo com miniaturas e forma de onda, cortar, dividir (navalha), redimensionar, encaixar, zoom e quadro a quadro; animação por quadros-chave em curvas (posição, giro, escala, opacidade, volume, velocidade); velocidade e ao contrário; 400+ transições (sobrepor dois trechos cria uma); efeitos (brilho, contraste, gama, matiz, preto e branco, chroma key, corte, desfoque, máscaras por pontos); correção de cor com rodas, curvas, LUT e escopos (forma de onda, histograma, vetorscópio); títulos em SVG e 3D (pelo Blender), créditos rolando; mixagem de áudio e visualização do som; gravar a tela e a webcam; exportar por qualquer codec do FFmpeg; EDL/XML. Decodificar e codificar no hardware é experimental.
+
+### 6.3 Para o Jay-E (etapa 9)
+
+- **Imagens:** tudo entra na lista de edições não destrutiva da etapa 3 (desfazer, o original intacto, a mesma lista aplicada ao converter em lote). Curvas e níveis com histograma; exposição, sombras/realces, temperatura e matiz, vibração; preto e branco; os três automáticos; nitidez, desfoque, reduzir ruído, vinheta; LUT `.cube`; endireitar com grade, corte numa proporção, corte em perspectiva; anotar (texto, setas, formas, caneta, marca-texto, desfocar ou pixelar uma área para esconder dados), olhos vermelhos e remover mancha (carimbo); "Exportar" com prévia e o tamanho do arquivo. Os filtros em várias threads com rayon, como o PhotoCraft; as anotações ficam editáveis até exportar e saem desenhadas no arquivo.
+- **Vídeo:** uma trilha só, sem quadros-chave. Linha do tempo com miniaturas, forma de onda e zoom, quadro a quadro; navalha (vários trechos, tirar os do meio, reordenar), copiada sem recodificar quando os cortes caem em quadros-chave, como a etapa 5; velocidade (0,25× a 4×) e ao contrário; cortar o quadro, girar 90°, espelhar; som (volume, mudo, entrada e saída graduais, salvar só o som, trocar ou pôr música); fade de e para preto e dissolver entre trechos; texto e marca d'água por cima, de um tempo a outro; brilho, contraste, saturação; desfocar uma área; predefinições (WhatsApp, YouTube 1080p, GIF).
+- **Motor do vídeo:** o que muda os quadros recodifica pelo Media Foundation (D3), sem FFmpeg (o instalador continua pequeno): o `SourceReader` decodifica para RGB32 e PCM, o Rust aplica as edições quadro a quadro (em várias threads), e o `SinkWriter` codifica H.264 + AAC, na GPU quando há. O GIF sai do Rust (quadros reduzidos e paleta).
+- **Não adota:** camadas, máscaras, pincéis com dinâmica, vetores e PSD do PhotoCraft; várias trilhas, quadros-chave, as 400 transições, títulos 3D, chroma key, máscaras, escopos, gravação de tela e EDL do OpenShot.
+
+## 7. O que o Jay-E adota
 
 | Ideia | De onde | Onde entra no Jay-E |
 |---|---|---|
@@ -149,4 +168,4 @@ Editor de vídeo do KDE, em C++/Qt. O trabalho pesado é do **MLT** (decodificar
 | Desfazer como pares de funções; desfazer com a seleção junto | Kdenlive, MarkText | todos os editores |
 | Tarefas em fila com progresso e cancelar; conversão em outro processo | Kdenlive | conversão (etapas 5 e 8) |
 
-**Não adota:** a UNO e a suíte inteira do LibreOffice (planilhas e apresentações ficam fora do v1, D2), o motor de layout em canvas do ONLYOFFICE, a edição colaborativa, as camadas e pincéis do PhotoCraft, as trilhas múltiplas e os efeitos de vídeo do Kdenlive, e o Electron do MarkText (o Jay-E é Tauri, como a linha).
+**Não adota:** a UNO e a suíte inteira do LibreOffice (planilhas e apresentações ficam fora do v1, D2), o motor de layout em canvas do ONLYOFFICE, a edição colaborativa, as camadas e pincéis do PhotoCraft, as trilhas múltiplas do Kdenlive e do OpenShot, e o Electron do MarkText (o Jay-E é Tauri, como a linha). Os ajustes de imagem e os efeitos de vídeo simples entram na etapa 9 (seção 6).

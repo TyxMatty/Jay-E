@@ -26,7 +26,19 @@ Every stage ends with something testable. The full plan, with the "done when" ch
   - [x] Rows and columns in the file's tables (insert above/below/left/right, delete); a header or footer where the file had none; long tables split row by row across pages, as in Word.
   - [x] First-page and even-page headers and footers ("Different first page", "Different odd & even pages"); a table's header row repeated at the top of each page it goes on to.
 - [x] **8. Converter:** one batch screen for every kind of file (images, DOCX/ODT/RTF/Markdown, PDF to text, video and audio), one format per kind, a queue with progress per file, Stop, and asking before overwriting (keep both, replace, skip). 20 mixed files in 3 s; the damaged one failed alone and the other 18 came out.
-- [ ] **9. Release:** NSIS installer in `%LOCALAPPDATA%\Jay-E`, file associations ("Open with"), Jay-E in Jay-H's catalog. Install on a clean machine and open a PDF with a double click.
+- [ ] **9. Tools and release:** more tools in the image and video editors (ideas from PhotoCraft and OpenShot, see `docs/REFERENCIAS.md` section 6), then the release.
+  - [ ] Images, tone and color: Curves and Levels with a histogram; exposure, highlights/shadows, temperature and tint, vibrance; black and white; Auto tone, contrast and color. All in the edit list, undoable.
+  - [ ] Images, filters: sharpen, blur, reduce noise, vignette; color looks from `.cube` LUT files.
+  - [ ] Images, geometry: straighten (free rotation with a grid), crop to a ratio (1:1, 4:3, 16:9…), perspective crop.
+  - [ ] Images, marking up: text, arrows, rectangles and ellipses, pen and highlighter, blur or pixelate an area (hide data); red eye; remove a spot (clone).
+  - [ ] Images: Export with a preview and the file size before saving.
+  - [ ] Video, timeline: thumbnails and the audio waveform, zoom, frame by frame (← →).
+  - [ ] Video, razor: split into several pieces, drop the ones in the middle, reorder them; still copied without re-encoding when it can be.
+  - [ ] Video, speed (0.25× to 4×) and reverse; crop the frame, rotate 90°, flip.
+  - [ ] Video, sound: volume, mute, fade in and out, save the sound alone, replace it or add music.
+  - [ ] Video, fades to and from black, a dissolve between joined pieces; text and a watermark picture over the video, from a time to a time; brightness, contrast, saturation; blur an area.
+  - [ ] Video: export presets (WhatsApp, YouTube 1080p, animated GIF).
+  - [ ] Release: NSIS installer in `%LOCALAPPDATA%\Jay-E`, file associations ("Open with"), Jay-E in Jay-H's catalog. Install on a clean machine and open a PDF with a double click.
 
 ## To do (found along the way)
 

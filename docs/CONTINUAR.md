@@ -120,7 +120,7 @@ Duas camadas: o **engine** em Rust ([`crates/jay-docs`](../crates/jay-docs), sem
 **Tamanho:** o instalador tem 16,5 MiB, acima da meta de 15 MB por causa do motor do TeX (os dados do ICU são quase tudo).
 
 **Próximas etapas:**
-- **9. Release:** associações de arquivo ("Abrir com"), o Jay-E no catálogo do Jay-H, instalar numa máquina limpa.
+- **9. Ferramentas e release:** mais ferramentas para imagens (curvas e níveis, filtros, endireitar, anotar, olhos vermelhos) e para vídeo (linha do tempo, navalha, velocidade, som, fades, texto por cima, predefinições), com ideias do PhotoCraft e do OpenShot (`docs/REFERENCIAS.md`, seção 6); depois as associações de arquivo ("Abrir com"), o Jay-E no catálogo do Jay-H, instalar numa máquina limpa.
 
 **Pendências** (a lista completa está no [`ROADMAP.md`](../ROADMAP.md)):
 - publicar o primeiro release (v0.1.0), para o atualizador e o Jay-H terem o que achar;
