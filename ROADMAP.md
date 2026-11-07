@@ -26,7 +26,7 @@ Every stage ends with something testable. The full plan, with the "done when" ch
   - [x] Rows and columns in the file's tables (insert above/below/left/right, delete); a header or footer where the file had none; long tables split row by row across pages, as in Word.
   - [x] First-page and even-page headers and footers ("Different first page", "Different odd & even pages"); a table's header row repeated at the top of each page it goes on to.
 - [x] **8. Converter:** one batch screen for every kind of file (images, DOCX/ODT/RTF/Markdown, PDF to text, video and audio), one format per kind, a queue with progress per file, Stop, and asking before overwriting (keep both, replace, skip). 20 mixed files in 3 s; the damaged one failed alone and the other 18 came out.
-- [ ] **9. Release:** NSIS installer in `%LOCALAPPDATA%\Jay-E`, file associations ("Open with"), Jay-E in Jay-H's catalog. Install on a clean machine and open a PDF with a double click.
+- [ ] **9. Release:** NSIS installer in `%LOCALAPPDATA%\Jay-E`, file associations ("Open with"), Jay-E in Jay-H's catalog: all in v0.1.0, published. Left: install on a clean machine and open a PDF with a double click.
 - [ ] **10. More tools:** the image and video editors grow (ideas from PhotoCraft and OpenShot, `docs/REFERENCIAS.md` section 6), and more ideas for every kind of file.
   - [ ] Images, tone and color: Curves and Levels with a histogram; exposure, highlights/shadows, temperature and tint, vibrance; black and white; Auto tone, contrast and color. All in the edit list, undoable.
   - [ ] Images, filters: sharpen, blur, reduce noise, vignette; color looks from `.cube` LUT files.
@@ -49,7 +49,8 @@ Every stage ends with something testable. The full plan, with the "done when" ch
 
 - [ ] Converter: try Stop in the middle of a batch in the app.
 
-- [ ] Publish the first release (v0.1.0) so the updater and Jay-H have something to find, and try updating on a test Windows account.
+- [x] Publish the first release: [v0.1.0](https://github.com/TyxMatty/Jay-E/releases/tag/v0.1.0) on 2026-11-07 (17 MB installer, SHA-256 on GitHub).
+- [ ] Try installing and updating on a test Windows account (and "Open with" there).
 - [ ] Measure the PDF reader's first page in a release build (the 150 ms goal passes in 3 of 5 PDFs in dev).
 - [ ] Try a PDF with a user password, an external link from a PDF, and screen readers on the pages.
 - [ ] The light theme in the PDF reader, the editors and the document view.
