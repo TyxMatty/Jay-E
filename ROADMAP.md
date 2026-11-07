@@ -24,7 +24,7 @@ Every stage ends with something testable. The full plan, with the "done when" ch
   - [x] PDF: reorder, rotate, delete, insert another PDF and save pages apart; highlight, draw, notes, text, erase; fill forms; undo and save.
   - [x] UI pass on the Jay brand (from Jay-C): the editing toolbars in Jay-C's segmented groups, in each style's own radius, the pressed controls in the accent; the window and taskbar icon is the wolf in the style's colors and changes with it, also in dev runs started from inside another app's package.
   - [x] Rows and columns in the file's tables (insert above/below/left/right, delete); a header or footer where the file had none; long tables split row by row across pages, as in Word.
-  - [ ] First-page and even-page headers; repeating a table's header row on each page.
+  - [x] First-page and even-page headers and footers ("Different first page", "Different odd & even pages"); a table's header row repeated at the top of each page it goes on to.
 - [ ] **8. Converter:** one batch screen for every kind of file, with a queue, progress, cancel and asking before overwriting. A corrupted file fails on its own and the others still convert.
 - [ ] **9. Release:** NSIS installer in `%LOCALAPPDATA%\Jay-E`, file associations ("Open with"), Jay-E in Jay-H's catalog. Install on a clean machine and open a PDF with a double click.
 

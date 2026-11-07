@@ -22,7 +22,7 @@ const ALIGNS = [
   ['right', 'alignRight', 'Align right'],
   ['both', 'alignJustify', 'Justify'],
 ];
-const WATCH = { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['data-style', 'data-num', 'data-align', 'data-ind', 'data-line', 'style', 'class', 'href'] };
+const WATCH = { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['data-header', 'data-style', 'data-num', 'data-align', 'data-ind', 'data-line', 'style', 'class', 'href'] };
 let nextDoc = 0;
 
 /** The name a style shows in the menu (Word's built-in names are in English inside the file). */
@@ -49,30 +49,42 @@ export async function createDocxEditor(file, fallback) {
 
   const styleEl = h('style');
   const body = h('div', { class: 'dx-body', contenteditable: 'true', spellcheck: 'true', role: 'textbox', 'aria-multiline': 'true', 'aria-label': file.name });
-  // The default header and footer, edited in place on the first page and copied onto the others.
-  const header = h('div', { class: 'dx-margin is-header', contenteditable: 'true', spellcheck: 'true', role: 'textbox', 'aria-multiline': 'true', 'aria-label': t('Header'), hidden: true });
-  const footer = h('div', { class: 'dx-margin is-footer', contenteditable: 'true', spellcheck: 'true', role: 'textbox', 'aria-multiline': 'true', 'aria-label': t('Footer'), hidden: true });
+  // Headers and footers: each variant edited in place on the first page that shows it, copied onto
+  // the others. The first-page and even-page ones are used only when the file says so.
+  const NAMES = {
+    header: { default: t('Header'), first: t('First page header'), even: t('Even page header') },
+    footer: { default: t('Footer'), first: t('First page footer'), even: t('Even page footer') },
+  };
+  const margins = ['header', 'footer'].flatMap((kind) =>
+    ['default', 'first', 'even'].map((variant) => ({
+      kind,
+      variant,
+      el: h('div', { class: `dx-margin is-${kind}`, contenteditable: 'true', spellcheck: 'true', role: 'textbox', 'aria-multiline': 'true', 'aria-label': NAMES[kind][variant], hidden: true }),
+    })),
+  );
+  let titlePg = false;
+  let evenOdd = false;
+  const inUse = (m) => m.variant === 'default' || (m.variant === 'first' ? titlePg : evenOdd);
   const copies = h('div', { class: 'dx-copies', 'aria-hidden': 'true' });
   /** An empty paragraph in the document's normal style (or `styleId`, if the file has it). */
   const plainPara = (styleId = '') => {
     const style = view.styles.find((x) => x.id === styleId)?.id ?? '';
     return h('p', { class: `dx-p dx-p-${styleClass(style || view.default_style)}`, 'data-style': style, 'data-num': '', 'data-align': '', 'data-ind': '', 'data-line': '' }, h('br'));
   };
-  for (const [el, styleId] of [
-    [header, 'Header'],
-    [footer, 'Footer'],
-  ]) {
+  for (const { el, kind } of margins) {
     el.addEventListener('focus', () => {
       if (el.dataset.new && !el.querySelector('p')) {
-        el.append(plainPara(styleId));
+        el.append(plainPara(kind === 'header' ? 'Header' : 'Footer'));
         getSelection().collapse(el.querySelector('p'), 0);
       }
     });
   }
-  const page = h('div', { class: 'dx-page is-paged', 'data-doc': docKey }, header, body, footer, copies);
-  /** The places text is edited: the body, and the header and footer when the file has them. */
-  const editables = () => [body, header, footer].filter((e) => !e.hidden);
-  const allIn = (selector) => editables().flatMap((e) => [...e.querySelectorAll(selector)]);
+  const marginEls = margins.map((m) => m.el);
+  const page = h('div', { class: 'dx-page is-paged', 'data-doc': docKey }, ...marginEls.slice(0, 3), body, ...marginEls.slice(3), copies);
+  /** The places text is edited: the body, and the headers and footers in use. */
+  const editables = () => [body, ...margins.filter(inUse).map((m) => m.el)];
+  // Header rows repeated on a page and the space a split table leaves are pictures, not the file.
+  const allIn = (selector) => editables().flatMap((e) => [...e.querySelectorAll(selector)].filter((n) => !n.closest('.dx-repeat, .dx-spacer')));
   const inside = (node) => !!node && editables().some((e) => e.contains(node));
   const stage = h('div', { class: 'doc-stage dx-stage' }, page);
 
@@ -159,7 +171,7 @@ export async function createDocxEditor(file, fallback) {
         delete el.dataset.push;
       }
     }
-    for (const tr of body.querySelectorAll('tr.dx-spacer')) tr.remove();
+    for (const tr of body.querySelectorAll('tr.dx-spacer, tr.dx-repeat')) tr.remove();
     const rects = blocks.map((el) => rectIn(el));
     // A table longer than what's left of the page goes on row by row: each row that would cross the
     // bottom margin starts on the next page, after a borderless spacer row (never saved).
@@ -185,7 +197,11 @@ export async function createDocxEditor(file, fallback) {
       }
       if (el.tagName === 'TABLE' && (splits || r.h > height - top - bottom)) {
         const before = offset;
-        [...el.rows].forEach((tr, j) => {
+        const rows = [...el.rows];
+        // The rows marked to repeat (from the top) start every page the table goes on to.
+        const heads = rows.findIndex((tr) => tr.dataset.header !== '1');
+        const headH = rows.slice(0, Math.max(0, heads)).reduce((sum, _, j) => sum + rowRects.get(el)[j].h, 0);
+        rows.forEach((tr, j) => {
           const rr = rowRects.get(el)[j];
           const ry = rr.y + offset;
           const rk = Math.floor(ry / stride);
@@ -194,6 +210,10 @@ export async function createDocxEditor(file, fallback) {
             const spacer = h('tr', { class: 'dx-spacer', 'aria-hidden': 'true', contenteditable: 'false' }, h('td', { colspan: String(Math.max(1, tr.cells.length)), style: `height:${push}px` }));
             tr.before(spacer);
             offset += push;
+            if (heads > 0 && j >= heads && headH + rr.h <= height - top - bottom) {
+              for (const head of rows.slice(0, heads)) tr.before(repeatOf(head));
+              offset += headH;
+            }
           }
         });
         end = y + r.h + (offset - before);
@@ -207,14 +227,19 @@ export async function createDocxEditor(file, fallback) {
     page.style.minHeight = `${pages * stride - GAP * px - top - bottom}px`;
     page.style.setProperty('--dx-h', `${height}px`);
     page.style.setProperty('--dx-stride', `${stride}px`);
-    // The header and footer on every page after the first, as pictures of the real ones.
+    // Each header and footer on the first page that uses it; on the others, pictures of it.
+    const variantOf = (k) => (titlePg && k === 0 ? 'first' : evenOdd && k % 2 === 1 ? 'even' : 'default');
     copies.replaceChildren();
-    for (let k = 1; k < pages; k++) {
-      for (const [el, at] of [
-        [header, pg.header],
-        [footer, pg.h - pg.footer],
-      ]) {
-        if (el.hidden || (el.dataset.new && !el.textContent.trim())) continue;
+    for (const { el, kind, variant } of margins) {
+      const at = kind === 'header' ? pg.header : pg.h - pg.footer;
+      let home = null;
+      for (let k = 0; k < pages; k++) {
+        if (variantOf(k) !== variant) continue;
+        if (home == null) {
+          home = k;
+          continue;
+        }
+        if (el.dataset.new && !el.textContent.trim()) continue;
         const copy = el.cloneNode(true);
         copy.removeAttribute('contenteditable');
         copy.removeAttribute('data-root');
@@ -223,7 +248,20 @@ export async function createDocxEditor(file, fallback) {
         copy.style.top = `${k * (pg.h + GAP) + at}pt`;
         copies.append(copy);
       }
+      // A variant no page uses (an even-page header in a one-page file) keeps its text but isn't shown.
+      el.hidden = home == null;
+      const y = `${(home ?? 0) * (pg.h + GAP) + at}pt`;
+      if (el.style.top !== y) el.style.top = y;
     }
+  }
+  /** A picture of a header row at the top of a page a table goes on to. */
+  function repeatOf(tr) {
+    const copy = tr.cloneNode(true);
+    for (const n of [copy, ...copy.querySelectorAll('*')]) for (const a of ['data-u', 'data-r', 'data-a', 'data-header', 'data-tpl']) n.removeAttribute(a);
+    copy.className = 'dx-repeat';
+    copy.setAttribute('aria-hidden', 'true');
+    copy.setAttribute('contenteditable', 'false');
+    return copy;
   }
 
   // ----- The look of text -----
@@ -342,6 +380,7 @@ export async function createDocxEditor(file, fallback) {
       else seen.add(p.dataset.u);
     }
     const present = [...new Set(allIn('[data-u]').filter((e) => !fresh.has(e)).map((e) => Number(e.dataset.u)))];
+    for (const e of editables()) if (e.dataset.root != null) present.push(Number(e.dataset.root));
     const out = [];
     const tables = [];
     let order = 0;
@@ -358,7 +397,7 @@ export async function createDocxEditor(file, fallback) {
     // New tables go whole; their paragraphs aren't sent again below.
     for (const table of allIn('table:not([data-u])')) {
       if (table.parentElement.closest('table:not([data-u])')) continue;
-      const rows = [...table.rows].filter((tr) => !tr.classList.contains('dx-spacer')).map((tr) => [...tr.cells].map((td) => [...td.children].filter((c) => c.tagName === 'P').map(newPara)));
+      const rows = [...table.rows].filter((tr) => !tr.matches('.dx-spacer, .dx-repeat')).map((tr) => [...tr.cells].map((td) => [...td.children].filter((c) => c.tagName === 'P').map(newPara)));
       const cols = [...(table.rows[0]?.cells ?? [])].map((td) => (parseFloat(td.style.width) || 0) || null).filter(Boolean);
       tables.push({ el: table, after: afterOf(table), container: containerOf(table), cols, rows });
     }
@@ -407,8 +446,9 @@ export async function createDocxEditor(file, fallback) {
       cells.push({ order: blocks.indexOf(td.querySelector('p')) + 1, row: Number(tr.dataset.u), after, template: Number(td.dataset.tpl || after || 0), column: td.cellIndex, paras: paraList(td) });
     }
     const removed_cells = [...removedCells].filter(([u]) => !present.includes(Number(u))).map(([u, column]) => ({ cell: Number(u), column }));
-    const margin = (el) => (el.dataset.new && el.textContent.trim() ? paraList(el) : null);
-    return { present, paras: out, tables, rows, cells, removed_cells, new_header: margin(header), new_footer: margin(footer) };
+    const new_margins = margins.filter((m) => inUse(m) && m.el.dataset.new && m.el.textContent.trim()).map(({ kind, variant, el }) => ({ kind, variant, paras: paraList(el) }));
+    const row_headers = allIn('tr[data-u]').map((tr) => ({ row: Number(tr.dataset.u), on: tr.dataset.header === '1' }));
+    return { present, paras: out, tables, rows, cells, removed_cells, new_margins, title_pg: titlePg, even_odd: evenOdd, row_headers };
   }
 
   // The caret as (paragraph, character), to put it back after the page is rebuilt.
@@ -447,10 +487,11 @@ export async function createDocxEditor(file, fallback) {
     unpick();
     body.innerHTML = view.html;
     const pg = view.page;
-    for (const [el, margin, kind] of [
-      [header, view.header, 'header'],
-      [footer, view.footer, 'footer'],
-    ]) {
+    titlePg = view.title_pg;
+    evenOdd = view.even_odd;
+    showPageOptions();
+    for (const { el, kind, variant } of margins) {
+      const margin = view.margins.find((m) => m.kind === kind && m.variant === variant);
       el.hidden = false;
       el.innerHTML = margin?.html ?? '';
       if (margin) {
@@ -460,19 +501,17 @@ export async function createDocxEditor(file, fallback) {
         // None in the file: an empty one to click into, made on save if something is written.
         delete el.dataset.root;
         el.dataset.new = kind;
-        el.dataset.placeholder = kind === 'header' ? t('Header') : t('Footer');
+        el.dataset.placeholder = NAMES[kind][variant];
       }
       Object.assign(el.style, { left: `${pg.left}pt`, width: `${pg.w - pg.left - pg.right}pt` });
     }
-    header.style.top = `${pg.header}pt`;
-    footer.style.top = `${pg.h - pg.footer}pt`;
     renumber();
     snapshot();
     dirty.clear();
     changed = false;
     past.length = 0;
     future.length = 0;
-    for (const el of editables()) observer.observe(el, WATCH);
+    for (const el of [body, ...marginEls]) observer.observe(el, WATCH);
     fillMenus();
     showDirty();
     stage.scrollTop = scroll;
@@ -525,7 +564,8 @@ export async function createDocxEditor(file, fallback) {
   const past = [];
   const future = [];
   let lastStep = { at: 0, kind: '' };
-  const state = () => ({ html: editables().map((e) => e.innerHTML), caret: caretPos() });
+  const boxes = () => [body, ...marginEls];
+  const state = () => ({ html: boxes().map((e) => e.innerHTML), caret: caretPos(), titlePg, evenOdd });
   /** Remembers the page before a change; typing of one kind within a second is one step. */
   function checkpoint(kind = 'edit') {
     const now = Date.now();
@@ -547,7 +587,9 @@ export async function createDocxEditor(file, fallback) {
     // Rebuilt from what it was: the paragraphs that differ from before count as changed.
     note(observer.takeRecords());
     const before = new Map(allIn('p[data-u]').map((p) => [p.dataset.u, p.outerHTML]));
-    editables().forEach((e, i) => (e.innerHTML = step.html[i] ?? e.innerHTML));
+    boxes().forEach((e, i) => (e.innerHTML = step.html[i] ?? e.innerHTML));
+    ({ titlePg, evenOdd } = step);
+    showPageOptions();
     observer.takeRecords();
     for (const p of allIn('p[data-u]')) if (before.get(p.dataset.u) !== p.outerHTML) dirty.add(p.dataset.u);
     if (!changed) {
@@ -768,7 +810,7 @@ export async function createDocxEditor(file, fallback) {
   const insertColumn = (right) =>
     tableEdit((td, tr, table) => {
       const index = td.cellIndex;
-      for (const row of [...table.rows].filter((r) => !r.classList.contains('dx-spacer'))) {
+      for (const row of [...table.rows].filter((r) => !r.matches('.dx-spacer, .dx-repeat'))) {
         const ref = row.cells[Math.min(index, row.cells.length - 1)];
         if (!ref) continue;
         const cell = cellLike(ref);
@@ -777,13 +819,13 @@ export async function createDocxEditor(file, fallback) {
     });
   const deleteRow = () =>
     tableEdit((td, tr, table) => {
-      if ([...table.rows].filter((r) => !r.classList.contains('dx-spacer')).length === 1) table.remove();
+      if ([...table.rows].filter((r) => !r.matches('.dx-spacer, .dx-repeat')).length === 1) table.remove();
       else tr.remove();
     });
   const deleteColumn = () =>
     tableEdit((td, tr, table) => {
       const index = td.cellIndex;
-      for (const row of [...table.rows].filter((r) => !r.classList.contains('dx-spacer'))) {
+      for (const row of [...table.rows].filter((r) => !r.matches('.dx-spacer, .dx-repeat'))) {
         const cell = row.cells[index];
         if (!cell) continue;
         if (cell.dataset.u != null) removedCells.set(cell.dataset.u, index);
@@ -896,6 +938,35 @@ export async function createDocxEditor(file, fallback) {
 
   // Groups of related controls, each in one segment, as Jay-C's segmented controls.
   const group = (label, ...items) => h('span', { class: 'tb-group', role: 'group', 'aria-label': label }, ...items);
+  /** The table's first row repeated at the top of each page, or not (and every other row not). */
+  const toggleHeaderRow = () =>
+    tableEdit((td, tr, table) => {
+      const rows = [...table.rows].filter((r) => !r.matches('.dx-spacer, .dx-repeat'));
+      const on = rows[0].dataset.header !== '1';
+      for (const r of rows) delete r.dataset.header;
+      if (on) rows[0].dataset.header = '1';
+    });
+  const repeatButton = button('headerRow', t('Repeat header row on each page'), toggleHeaderRow);
+  // A different header and footer on the first page, and on even pages.
+  const pageButtons = [
+    button('firstPage', t('Different first page'), () => setPageOption(true)),
+    button('oddEven', t('Different odd & even pages'), () => setPageOption(false)),
+  ];
+  function showPageOptions() {
+    pageButtons[0].setAttribute('aria-pressed', String(titlePg));
+    pageButtons[1].setAttribute('aria-pressed', String(evenOdd));
+  }
+  function setPageOption(first) {
+    checkpoint();
+    if (first) titlePg = !titlePg;
+    else evenOdd = !evenOdd;
+    showPageOptions();
+    if (!changed) {
+      changed = true;
+      showDirty();
+    }
+    renumber();
+  }
   // Shown while the cursor is in a table.
   const tableGroup = group(
     t('Table'),
@@ -905,6 +976,7 @@ export async function createDocxEditor(file, fallback) {
     button('colRight', t('Insert column right'), () => insertColumn(true)),
     button('rowDelete', t('Delete row'), deleteRow),
     button('colDelete', t('Delete column'), deleteColumn),
+    repeatButton,
   );
   tableGroup.hidden = true;
   const toolbar = h(
@@ -923,6 +995,7 @@ export async function createDocxEditor(file, fallback) {
     ),
     group(t('Alignment'), alignButtons, spacingSelect),
     tableGroup,
+    group(t('Page'), pageButtons),
     group(
       t('Lists'),
       button('listBullet', t('Bulleted list'), () => toggleList(true)),
@@ -948,7 +1021,14 @@ export async function createDocxEditor(file, fallback) {
     fontSelect.value = font;
     sizeInput.value = String(Math.round(parseFloat(cs.fontSize) * 0.75 * 2) / 2);
     colorBar.style.background = cs.color;
-    tableGroup.hidden = !cellAt();
+    const td = cellAt();
+    tableGroup.hidden = !td;
+    if (td) {
+      // Only a row of the file can be marked (a new table's rows have nothing to mark yet).
+      const first = [...td.closest('table').rows].find((r) => !r.matches('.dx-spacer, .dx-repeat'));
+      repeatButton.disabled = first?.dataset.u == null;
+      repeatButton.setAttribute('aria-pressed', String(first?.dataset.header === '1'));
+    }
     if (p) {
       const style = p.dataset.style || view.default_style;
       if (![...styleSelect.options].some((o) => o.value === style)) styleSelect.append(h('option', { value: style }, styleName(view.styles.find((s) => s.id === style)?.name || style)));

@@ -58,5 +58,8 @@ export const icons = {
   colRight: svg('<rect x="3" y="3" width="11" height="18" rx="2"/><path d="M8.5 3v18M16 12h6M19 9v6"/>'),
   rowDelete: svg('<rect x="3" y="7" width="18" height="10" rx="2"/><path d="m9 10 6 4m0-4-6 4"/>'),
   colDelete: svg('<rect x="7" y="3" width="10" height="18" rx="2"/><path d="m10 9 4 6m0-6-4 6"/>'),
+  headerRow: svg('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 9v12M15 9v12"/><path d="M3 3h18v6H3z" fill="currentColor" stroke="none" opacity=".35"/>'),
+  firstPage: svg('<path d="M6 2h9l5 5v15H6z"/><path d="M9 7h4"/><path d="M15 2v5h5"/><path d="M9 12h8M9 16h8"/>'),
+  oddEven: svg('<rect x="2" y="4" width="9" height="16" rx="1"/><rect x="13" y="4" width="9" height="16" rx="1"/><path d="M4.5 7.5h4M15.5 7.5h4"/>'),
   lineSpacing: svg('<path d="M11 6h10M11 12h10M11 18h10M3 8l3-3 3 3M3 16l3 3 3-3M6 5v14"/>'),
 };

@@ -12,7 +12,7 @@
 //! edit.rs does with document.xml and its header parts.
 
 use super::edit::{
-    Editable, EditPara, EditTable, Edits, Geo, Item, Level, Margin, NewImage, PProps, PageBox, RProps, Set, StyleChoice, View, check_namespaces, cls, default_level, esc, hex, num, safe_link, shift,
+    Editable, EditPara, NewMargin, EditTable, Edits, Geo, Item, Level, Margin, NewImage, PProps, PageBox, RProps, Set, StyleChoice, View, check_namespaces, cls, default_level, esc, hex, num, safe_link, shift,
     start_tag_end, visible, xml_text,
 };
 use super::odt::length_pt;
@@ -214,6 +214,16 @@ fn read_list_style(l: &Node) -> Vec<Level> {
     levels
 }
 
+/// The master page's header and footer elements, in the order ODF wants them, with their variants.
+const MARGINS: [(&str, &str, &str); 6] = [
+    ("header", "header", "default"),
+    ("header-left", "header", "even"),
+    ("header-first", "header", "first"),
+    ("footer", "footer", "default"),
+    ("footer-left", "footer", "even"),
+    ("footer-first", "footer", "first"),
+];
+
 // ---------------------------------------------------------------- the session
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -259,11 +269,14 @@ struct Unit {
     empty: bool,
     /// Tables: their `table:table-column`s and how many columns each stands for.
     columns: Vec<(Range<usize>, usize)>,
+    /// Rows in `table:table-header-rows` (repeated on each page): that element's start and end tags.
+    header_group: Option<(Range<usize>, Range<usize>)>,
 }
 
 pub struct Session {
-    /// The first master page (in styles.xml): where a new header or footer goes.
+    /// The first master page (in styles.xml): where a new header or footer goes, and its children.
     master: Option<Range<usize>>,
+    master_children: Vec<(String, Range<usize>)>,
     file: Vec<u8>,
     xml: String,
     parts: Vec<(String, Range<usize>)>,
@@ -413,31 +426,27 @@ impl Session {
             number_num: None,
             page,
             table_style: None,
-            header: None,
-            footer: None,
+            margins: vec![],
+            title_pg: master.is_some_and(|m| m.child("header-first").is_some() || m.child("footer-first").is_some()),
+            even_odd: master.is_some_and(|m| m.child("header-left").is_some() || m.child("footer-left").is_some()),
         };
-        let out = Session { master: master.map(|m| m.span.clone()), file: bytes.to_vec(), xml: String::new(), parts, autos, units: vec![], atoms: vec![], runs: vec![], links: vec![], styles: Styles { defs: HashMap::new(), default_p: PProps::default(), default_r: RProps::default(), named: vec![] }, names, images: vec![], view };
+        let out = Session { master: master.map(|m| m.span.clone()), master_children: master.map(|m| m.nodes().map(|c| (c.name.clone(), c.span.clone())).collect()).unwrap_or_default(), file: bytes.to_vec(), xml: String::new(), parts, autos, units: vec![], atoms: vec![], runs: vec![], links: vec![], styles: Styles { defs: HashMap::new(), default_p: PProps::default(), default_r: RProps::default(), named: vec![] }, names, images: vec![], view };
         let mut ctx = Ctx { xml: &all, part: 0, styles: &styles, zip, image_index: HashMap::new(), img_url, list_styles: &list_styles, numbering: HashMap::new(), last_list: HashMap::new(), out };
         let text = root.child("body").and_then(|b| b.child("text")).ok_or_else(|| invalid("not a text document (no office:text)"))?;
         let mut html = String::new();
         ctx.container(text, None, &mut html, &[], 0);
         let body_start = text.child("sequence-decls").map(|d| d.span.end).unwrap_or_else(|| start_tag_end(&all, text.span.start));
-        for (kind, node) in [("header", header), ("footer", footer)] {
-            let Some(node) = node else { continue };
+        for (element, kind, variant) in MARGINS {
+            let Some(node) = master.and_then(|m| m.child(element)) else { continue };
             ctx.part = 1;
             let u = ctx.unit(Kind::Root, node, None);
             let mut part_html = String::new();
             ctx.container(node, Some(u), &mut part_html, &[], 0);
-            let margin = Some(Margin { u, html: part_html });
-            if kind == "header" {
-                ctx.out.view.header = margin;
-            } else {
-                ctx.out.view.footer = margin;
-            }
+            ctx.out.view.margins.push(Margin { kind: kind.into(), variant: variant.into(), u, html: part_html });
         }
         let numbering = std::mem::take(&mut ctx.numbering);
         let mut session = ctx.out;
-        session.units.push(Unit { kind: Kind::Block, part: 0, span: 0..0, parent: None, tag: String::new(), style: String::new(), direct: Direct::default(), marks: vec![], lists: vec![], content_start: body_start, empty: false, columns: vec![] });
+        session.units.push(Unit { kind: Kind::Block, part: 0, span: 0..0, parent: None, tag: String::new(), style: String::new(), direct: Direct::default(), marks: vec![], lists: vec![], content_start: body_start, empty: false, columns: vec![], header_group: None });
 
         // CSS: the page, then every paragraph and text style with its parents resolved.
         let mut css = format!(
@@ -520,7 +529,7 @@ impl Ctx<'_> {
     fn unit(&mut self, kind: Kind, node: &Node, parent: Option<usize>) -> usize {
         let start = start_tag_end(self.xml, node.span.start);
         let empty = self.xml[node.span.start..start].ends_with("/>");
-        self.out.units.push(Unit { kind, part: self.part, span: node.span.clone(), parent, tag: String::new(), style: String::new(), direct: Direct::default(), marks: vec![], lists: vec![], content_start: start, empty, columns: vec![] });
+        self.out.units.push(Unit { kind, part: self.part, span: node.span.clone(), parent, tag: String::new(), style: String::new(), direct: Direct::default(), marks: vec![], lists: vec![], content_start: start, empty, columns: vec![], header_group: None });
         self.out.units.len() - 1
     }
 
@@ -584,10 +593,22 @@ impl Ctx<'_> {
         }
         let bordered = tbl.find("table-cell").and_then(|c| c.attr("style-name")).and_then(|s| self.styles.defs.get(&("table-cell".to_owned(), s.to_owned()))).is_some_and(|s| s.raw.contains("fo:border") && !s.raw.contains("fo:border=\"none\""));
         let _ = write!(html, "<table class=\"dx-table{}\" data-u=\"{t}\"><tbody>", if bordered { " is-bordered" } else { "" });
-        let rows: Vec<&Node> = tbl.nodes().flat_map(|n| if matches!(n.name.as_str(), "table-header-rows" | "table-rows" | "table-row-group") { n.nodes().collect::<Vec<_>>() } else { vec![n] }).filter(|n| n.name == "table-row").collect();
-        for tr in rows {
+        let rows: Vec<(&Node, Option<&Node>)> = tbl
+            .nodes()
+            .flat_map(|n| match n.name.as_str() {
+                "table-header-rows" => n.nodes().map(|r| (r, Some(n))).collect::<Vec<_>>(),
+                "table-rows" | "table-row-group" => n.nodes().map(|r| (r, None)).collect(),
+                _ => vec![(n, None)],
+            })
+            .filter(|(n, _)| n.name == "table-row")
+            .collect();
+        for (tr, group) in rows {
             let r = self.unit(Kind::Row, tr, Some(t));
-            let _ = write!(html, "<tr data-u=\"{r}\">");
+            if let Some(g) = group {
+                let open = g.span.start..start_tag_end(self.xml, g.span.start);
+                self.out.units[r].header_group = Some((open, g.span.end - "</table:table-header-rows>".len()..g.span.end));
+            }
+            let _ = write!(html, "<tr data-u=\"{r}\"{}>", if group.is_some() { " data-header=\"1\"" } else { "" });
             let mut col = 0;
             for tc in tr.nodes().filter(|n| n.name == "table-cell" || n.name == "covered-table-cell") {
                 if tc.name == "covered-table-cell" {
@@ -940,7 +961,7 @@ impl Session {
             if !missing(u) || matches!(unit.kind, Kind::Cell | Kind::Root) || ancestors(u).any(|a| missing(a) && !matches!(self.units[a].kind, Kind::Cell | Kind::Root)) {
                 continue;
             }
-            if unit.kind == Kind::Para && ancestors(u).any(|a| self.units[a].kind == Kind::Cell && missing(a)) {
+            if unit.kind == Kind::Para && ancestors(u).any(|a| matches!(self.units[a].kind, Kind::Cell | Kind::Root) && missing(a)) {
                 continue;
             }
             deleted.insert(u);
@@ -1441,41 +1462,73 @@ impl Session {
         Ok(())
     }
 
-    /// A header or footer made where the file had none: in the first master page (styles.xml).
+    /// Headers and footers made where the file had none, and the first-page and even-page ones
+    /// taken out when turned off (in ODF they exist or not); rows that start or stop repeating.
     fn new_margins(&self, edits: &Edits, out: &mut Out) -> Result<(), DocError> {
+        for h in &edits.row_headers {
+            let Some(row) = self.units.get(h.row).filter(|u| u.kind == Kind::Row && u.header_group.is_some() != h.on) else { continue };
+            match &row.header_group {
+                Some((open, close)) => {
+                    out.edit(open.clone(), String::new());
+                    out.edit(close.clone(), String::new());
+                }
+                None => {
+                    out.insert(row.span.start, 0, "<table:table-header-rows>".into());
+                    out.insert(row.span.end, 0, "</table:table-header-rows>".into());
+                }
+            }
+        }
         let Some(master) = &self.master else { return Ok(()) };
-        let mut header = String::new();
-        let mut footer = String::new();
-        for (kind, paras, exists) in [("header", &edits.new_header, self.view.header.is_some()), ("footer", &edits.new_footer, self.view.footer.is_some())] {
-            let Some(paras) = paras.as_ref().filter(|p| !p.is_empty() && !exists) else { continue };
+        let off: Vec<&str> = [(edits.title_pg, self.view.title_pg, "first"), (edits.even_odd, self.view.even_odd, "even")].iter().filter(|(new, was, _)| *new == Some(false) && *was).map(|(_, _, v)| *v).collect();
+        for (name, span) in &self.master_children {
+            if MARGINS.iter().any(|(e, _, v)| e == name && off.contains(v)) {
+                out.edit(span.clone(), String::new());
+            }
+        }
+        let mut made: Vec<(usize, String)> = vec![];
+        for NewMargin { kind, variant, paras } in &edits.new_margins {
+            let Some(i) = MARGINS.iter().position(|(_, k, v)| k == kind && v == variant) else { continue };
+            let element = MARGINS[i].0;
+            if paras.is_empty() || self.master_children.iter().any(|(n, _)| n == element) || off.contains(&variant.as_str()) {
+                continue;
+            }
             out.part = 1;
-            let mut xml = format!("<style:{kind}>");
+            let mut xml = format!("<style:{element}>");
             for p in paras {
                 xml.push_str(&self.paragraph_xml(p, None, None, out)?);
             }
-            let _ = write!(xml, "</style:{kind}>");
-            if kind == "header" {
-                header = xml;
-            } else {
-                footer = xml;
+            let _ = write!(xml, "</style:{element}>");
+            made.push((i, xml));
+        }
+        // ODF has no switch for these: turned on with nothing written, an empty header keeps it on.
+        for (on, was, variant) in [(edits.title_pg, self.view.title_pg, "first"), (edits.even_odd, self.view.even_odd, "even")] {
+            let mine: Vec<usize> = (0..MARGINS.len()).filter(|&i| MARGINS[i].2 == variant).collect();
+            if on == Some(true) && !was && !mine.iter().any(|&i| made.iter().any(|(j, _)| *j == i)) {
+                made.push((mine[0], format!("<style:{0}><text:p/></style:{0}>", MARGINS[mine[0]].0)));
             }
         }
-        if header.is_empty() && footer.is_empty() {
+        if made.is_empty() {
             return Ok(());
         }
+        made.sort_by_key(|(i, _)| *i);
         let raw = &self.xml[master.clone()];
         let open_end = start_tag_end(&self.xml, master.start);
         if raw.ends_with("/>") && open_end == master.end {
             let open = format!("{}>", raw.trim_end_matches("/>").trim_end());
-            out.edit(master.clone(), format!("{open}{header}{footer}</style:master-page>"));
-        } else {
-            // The header first in the master page, the footer last (after any header-left/first).
-            if !header.is_empty() {
-                out.insert(open_end, 0, header);
-            }
-            if !footer.is_empty() {
-                out.insert(master.end - "</style:master-page>".len(), 0, footer);
-            }
+            let inner: String = made.into_iter().map(|(_, x)| x).collect();
+            out.edit(master.clone(), format!("{open}{inner}</style:master-page>"));
+            return Ok(());
+        }
+        // Each after the last existing element that comes before it in ODF's order.
+        for (i, xml) in made {
+            let at = self
+                .master_children
+                .iter()
+                .filter(|(n, _)| MARGINS.iter().position(|(e, _, _)| e == n).is_some_and(|k| k < i))
+                .map(|(_, sp)| sp.end)
+                .max()
+                .unwrap_or(open_end);
+            out.insert(at, i, xml);
         }
         Ok(())
     }
@@ -1738,7 +1791,7 @@ mod tests {
         assert!(v.html.contains(">  </span>") || v.html.contains(">two</span>") || v.html.contains(" two"));
         assert!(v.css.contains(".dx-page{width:481.89pt;"), "{}", v.css);
         assert!(v.css.contains("font-family:'Liberation Sans',sans-serif;font-size:18pt;font-weight:700"), "{}", v.css);
-        assert_eq!(v.header.as_ref().unwrap().html.contains("Company"), true);
+        assert!(v.margins.iter().any(|m| m.kind == "header" && m.html.contains("Company")));
         let key = v.bullet_num.clone().unwrap();
         assert!(key.starts_with("L1#"));
         assert_eq!(v.numbering[&key][0].left, 720);
@@ -1808,7 +1861,7 @@ mod tests {
         let bytes = sample();
         let s = open(&bytes);
         // The header is in styles.xml.
-        let header = s.view.header.clone().unwrap();
+        let header = s.view.margins.iter().find(|m| m.kind == "header" && m.variant == "default").cloned().unwrap();
         let company = para(&s, "Company");
         let mut h = edit(company, &s, vec![text("Company Ltd.", None)]);
         h.container = Some(header.u);
@@ -1867,7 +1920,7 @@ mod tests {
         };
         let new_row = EditRow { order: 1, table, after: Some(row), template: row, cells: vec![vec![para("r2c1")], vec![], vec![para("r2c3")]] };
         let new_cell = EditCell { order: 2, row, after: Some(cells[1]), template: cells[1], column: 2, paras: vec![para("r1c3")] };
-        let saved = s.save(&Edits { present: all(&s), rows: vec![new_row], cells: vec![new_cell], new_footer: Some(vec![para("Page footer")]), ..Default::default() }, &[]).unwrap();
+        let saved = s.save(&Edits { present: all(&s), rows: vec![new_row], cells: vec![new_cell], new_margins: vec![NewMargin { kind: "footer".into(), variant: "default".into(), paras: vec![para("Page footer")] }], ..Default::default() }, &[]).unwrap();
         let c = entry(&saved, "content.xml");
         check_namespaces(&c).unwrap();
         assert!(c.contains("<table:table-column table:number-columns-repeated=\"3\"/>"), "{c}");
@@ -1875,7 +1928,7 @@ mod tests {
         let st = entry(&saved, "styles.xml");
         assert!(st.contains("</style:header><style:footer><text:p text:style-name=\"Standard\">Page footer</text:p></style:footer></style:master-page>"), "{st}");
         let again = open(&saved);
-        assert!(again.view.footer.as_ref().unwrap().html.contains("Page footer"));
+        assert!(again.view.margins.iter().any(|m| m.kind == "footer" && m.html.contains("Page footer")));
         let doc = crate::doc::odt::read(&saved).unwrap();
         assert!(crate::doc::text::write(&doc).contains("r1c3"));
         // A column taken out again: one fewer in the column list.
@@ -1886,6 +1939,40 @@ mod tests {
         let back = again.save(&Edits { present, removed_cells: removed, ..Default::default() }, &[]).unwrap();
         let c2 = entry(&back, "content.xml");
         assert!(c2.contains("<table:table-column table:number-columns-repeated=\"2\"/>") && !c2.contains("r1c3") && !c2.contains("r2c3"), "{c2}");
+    }
+
+    #[test]
+    fn first_and_left_page_headers_and_repeated_rows() {
+        let bytes = sample();
+        let s = open(&bytes);
+        assert!(!s.view.title_pg && !s.view.even_odd);
+        let para = |t: &str| {
+            let mut p = edit(para(&s, ">last<"), &s, vec![text(t, None)]);
+            p.u = None;
+            p
+        };
+        let table = (0..s.body()).find(|&u| s.units[u].kind == Kind::Table).unwrap();
+        let row = s.children_of(table, Kind::Row)[0];
+        let margins = vec![NewMargin { kind: "header".into(), variant: "first".into(), paras: vec![para("Cover")] }, NewMargin { kind: "footer".into(), variant: "even".into(), paras: vec![para("Even")] }];
+        let saved = s.save(&Edits { present: all(&s), new_margins: margins, title_pg: Some(true), even_odd: Some(true), row_headers: vec![super::super::edit::RowHeader { row, on: true }], ..Default::default() }, &[]).unwrap();
+        let st = entry(&saved, "styles.xml");
+        assert!(st.contains("<style:header><text:p text:style-name=\"Standard\">Company</text:p></style:header><style:header-first><text:p text:style-name=\"Standard\">Cover</text:p></style:header-first><style:footer-left><text:p text:style-name=\"Standard\">Even</text:p></style:footer-left></style:master-page>"), "{st}");
+        let c = entry(&saved, "content.xml");
+        assert!(c.contains("<table:table-header-rows><table:table-row>") && c.contains("</table:table-row></table:table-header-rows>"), "{c}");
+        let again = open(&saved);
+        assert!(again.view.title_pg && again.view.even_odd && again.view.html.contains("data-header=\"1\""));
+        // Off again: the first-page header goes; the header row stops repeating.
+        let t2 = (0..again.body()).find(|&u| again.units[u].kind == Kind::Table).unwrap();
+        let r2 = again.children_of(t2, Kind::Row)[0];
+        let first = again.view.margins.iter().find(|m| m.variant == "first").unwrap().u;
+        let present: Vec<usize> = all(&again).into_iter().filter(|&u| u != first && again.units[u].parent != Some(first)).collect();
+        let off = again.save(&Edits { present, title_pg: Some(false), row_headers: vec![super::super::edit::RowHeader { row: r2, on: false }], ..Default::default() }, &[]).unwrap();
+        let st2 = entry(&off, "styles.xml");
+        assert!(!st2.contains("header-first") && st2.contains("footer-left"), "{st2}");
+        assert!(!entry(&off, "content.xml").contains("table-header-rows"));
+        // On with nothing written: still on when opened again.
+        let on = s.save(&Edits { present: all(&s), even_odd: Some(true), ..Default::default() }, &[]).unwrap();
+        assert!(entry(&on, "styles.xml").contains("<style:header-left><text:p/></style:header-left>") && open(&on).view.even_odd);
     }
 
     #[test]

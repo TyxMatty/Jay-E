@@ -118,7 +118,7 @@ Duas camadas: o **engine** em Rust ([`crates/jay-docs`](../crates/jay-docs), sem
 **Tamanho:** o instalador tem 16,5 MiB, acima da meta de 15 MB por causa do motor do TeX (os dados do ICU são quase tudo).
 
 **Próximas etapas:**
-- **7. Edição (resto):** linhas e colunas em tabelas existentes; criar cabeçalho onde não há.
+- **7. Edição (resto):** tudo da lista está feito (o último: cabeçalhos da primeira página e das pares, e a linha de título da tabela repetida); falta fechar a etapa.
 - **8. Conversor:** uma tela de lote para todos os tipos, com fila, progresso, cancelar e perguntar antes de sobrescrever.
 - **9. Release:** associações de arquivo ("Abrir com"), o Jay-E no catálogo do Jay-H, instalar numa máquina limpa.
 

@@ -2465,8 +2465,14 @@ fieldset > h3 {
   background: transparent;
 }
 
+/* A table's header row again at the top of the next page (ui/docx-editor.js paginate). */
+.dx-page tr.dx-repeat {
+  user-select: none;
+}
+
 @media print {
-  #print-root tr.dx-spacer {
+  #print-root tr.dx-spacer,
+  #print-root tr.dx-repeat {
     display: none;
   }
 }

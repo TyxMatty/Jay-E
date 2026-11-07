@@ -500,6 +500,8 @@ struct Unit {
     content_start: usize,
     /// Tables: their `w:gridCol`s.
     grid: Vec<Range<usize>>,
+    /// Rows: repeated at the top of each page (`w:tblHeader`).
+    header: bool,
 }
 
 /// What a paragraph says itself, as strings ("" = nothing), compared on save.
@@ -547,13 +549,20 @@ pub struct View {
     pub page: PageBox,
     /// The style new tables get ("Table Grid"), if the file has it.
     pub table_style: Option<String>,
-    /// The default header and footer, edited like the body (`u` is their container).
-    pub header: Option<Margin>,
-    pub footer: Option<Margin>,
+    /// The headers and footers of the last section, edited like the body.
+    pub margins: Vec<Margin>,
+    /// A different header and footer on the first page; on even pages.
+    pub title_pg: bool,
+    pub even_odd: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Margin {
+    /// "header" or "footer".
+    pub kind: String,
+    /// "default", "first" or "even".
+    pub variant: String,
+    /// Its container (`data-root`).
     pub u: usize,
     pub html: String,
 }
@@ -653,10 +662,15 @@ impl Session {
         // The default header and footer of the last section, appended after document.xml.
         let mut all = xml.clone();
         let mut parts = vec![("word/document.xml".to_owned(), 0..xml.len())];
-        let mut margins: Vec<(&str, Node, HashMap<String, String>)> = vec![];
-        for (kind, reference) in [("header", "headerReference"), ("footer", "footerReference")] {
-            let Some(target) = body.child("sectPr").and_then(|s| s.nodes().find(|n| n.name == reference && n.attr("type").is_none_or(|t| t == "default"))).and_then(|r| rels.get(r.attr("id")?)) else { continue };
+        let mut margins: Vec<(&str, &str, Node, HashMap<String, String>)> = vec![];
+        let mut loaded = HashSet::new();
+        for (kind, reference, variant) in [("header", "headerReference", "default"), ("header", "headerReference", "first"), ("header", "headerReference", "even"), ("footer", "footerReference", "default"), ("footer", "footerReference", "first"), ("footer", "footerReference", "even")] {
+            let Some(target) = body.child("sectPr").and_then(|s| s.nodes().find(|n| n.name == reference && n.attr("type").unwrap_or("default") == variant)).and_then(|r| rels.get(r.attr("id")?)) else { continue };
             let name = format!("word/{}", target.trim_start_matches("/word/").trim_start_matches('/'));
+            // A part two variants share is edited once (as the first).
+            if !loaded.insert(name.clone()) {
+                continue;
+            }
             let Some(bytes) = zip_entry(&mut zip, &name)? else { continue };
             let Ok(text) = String::from_utf8(bytes) else { continue };
             let Ok(mut node) = xml::parse(text.as_bytes()) else { continue };
@@ -675,7 +689,7 @@ impl Session {
                 Some(x) => xml::parse(&x)?.nodes().filter_map(|r| Some((r.attr("Id")?.to_owned(), r.attr("Target")?.to_owned()))).collect(),
                 None => HashMap::new(),
             };
-            margins.push((kind, node, part_rels));
+            margins.push((kind, variant, node, part_rels));
         }
 
         let view = View {
@@ -690,8 +704,9 @@ impl Session {
             number_num: None,
             page: PageBox::default(),
             table_style: None,
-            header: None,
-            footer: None,
+            margins: vec![],
+            title_pg: body.child("sectPr").and_then(|s| s.child("titlePg")).is_some_and(on),
+            even_odd: zip_entry(&mut zip, "word/settings.xml")?.and_then(|x| xml::parse(&x).ok()).and_then(|s| s.child("evenAndOddHeaders").map(on)).unwrap_or(false),
         };
         let has_r_ns = tag.contains(&format!("xmlns:r=\"{R_NS}\""));
         let body_sect = body.child("sectPr").map(|s| s.span.clone());
@@ -702,19 +717,14 @@ impl Session {
         let mut html = String::new();
         ctx.container(body, None, &mut html, 0);
         let body_start = start_tag_end(&xml, body.span.start);
-        for (i, (kind, node, part_rels)) in margins.iter().enumerate() {
+        for (i, (kind, variant, node, part_rels)) in margins.iter().enumerate() {
             // Its pictures and links are in its own relationships.
             ctx.rels = part_rels;
             ctx.part = i + 1;
             let u = ctx.unit(Kind::Root, node, None);
             let mut part_html = String::new();
             ctx.container(node, Some(u), &mut part_html, 0);
-            let margin = Some(Margin { u, html: part_html });
-            if *kind == "header" {
-                ctx.out.view.header = margin;
-            } else {
-                ctx.out.view.footer = margin;
-            }
+            ctx.out.view.margins.push(Margin { kind: (*kind).into(), variant: (*variant).into(), u, html: part_html });
         }
         let mut session = ctx.out;
         let mut fonts = ctx.fonts;
@@ -732,6 +742,7 @@ impl Session {
             has_sect: false,
             content_start: body_start,
             grid: vec![],
+            header: false,
         });
 
         // The page: size and margins from the last section.
@@ -853,6 +864,7 @@ impl Ctx<'_> {
             has_sect: false,
             content_start: node.child("tcPr").map(|p| p.span.end).unwrap_or(start),
             grid: node.child("tblGrid").map(|g| g.nodes().filter(|c| c.name == "gridCol").map(|c| c.span.clone()).collect()).unwrap_or_default(),
+            header: node.child("trPr").and_then(|p| p.child("tblHeader")).is_some_and(on),
         });
         self.out.units.len() - 1
     }
@@ -884,7 +896,7 @@ impl Ctx<'_> {
         let _ = write!(html, "<table class=\"dx-table dx-t-{}{}\" data-u=\"{t}\"><tbody>", cls(style), if bordered { " is-bordered" } else { "" });
         for tr in tbl.nodes().filter(|n| n.name == "tr") {
             let r = self.unit(Kind::Row, tr, Some(t));
-            let _ = write!(html, "<tr data-u=\"{r}\">");
+            let _ = write!(html, "<tr data-u=\"{r}\"{}>", if self.out.units[r].header { " data-header=\"1\"" } else { "" });
             for tc in tr.nodes().filter(|n| n.name == "tc") {
                 let c = self.unit(Kind::Cell, tc, Some(r));
                 let pr = tc.child("tcPr");
@@ -1287,11 +1299,30 @@ pub struct Edits {
     pub cells: Vec<EditCell>,
     #[serde(default)]
     pub removed_cells: Vec<RemovedCell>,
-    /// A header or footer made where the file had none.
+    /// Headers and footers made where the file had none (of that kind and variant).
     #[serde(default)]
-    pub new_header: Option<Vec<EditPara>>,
+    pub new_margins: Vec<NewMargin>,
+    /// Turning the first-page or even-page header on or off.
     #[serde(default)]
-    pub new_footer: Option<Vec<EditPara>>,
+    pub title_pg: Option<bool>,
+    #[serde(default)]
+    pub even_odd: Option<bool>,
+    /// Rows that repeat (or stop repeating) at the top of each page.
+    #[serde(default)]
+    pub row_headers: Vec<RowHeader>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NewMargin {
+    pub kind: String,
+    pub variant: String,
+    pub paras: Vec<EditPara>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RowHeader {
+    pub row: usize,
+    pub on: bool,
 }
 
 /// A row added to a table of the file: after `after` (or before `template`), its cells shaped like
@@ -1538,6 +1569,8 @@ struct Out<'a> {
     main: bool,
     /// Headers and footers made here: (part name, XML, relationship id, "header" | "footer").
     new_parts: Vec<(String, String, String, &'static str)>,
+    /// Different even-page headers turned on or off (word/settings.xml).
+    even_odd: Option<bool>,
     /// Relationships added (id, target), lists created (kind → numId).
     new_rels: Vec<(String, String)>,
     new_lists: Vec<(bool, String)>,
@@ -1560,7 +1593,7 @@ impl Session {
     pub fn save(&self, edits: &Edits, images: &[NewImage]) -> Result<Vec<u8>, DocError> {
         let present: HashSet<usize> = edits.present.iter().copied().filter(|&u| u < self.units.len()).collect();
         let next_drawing = self.xml.match_indices("docPr id=\"").filter_map(|(i, m)| self.xml[i + m.len()..].split('"').next()?.parse::<u32>().ok()).max().unwrap_or(0);
-        let mut out = Out { edits: vec![], seq: 0, new_rels: vec![], new_lists: vec![], images, media: vec![], next_drawing, main: true, new_parts: vec![] };
+        let mut out = Out { edits: vec![], seq: 0, new_rels: vec![], new_lists: vec![], images, media: vec![], next_drawing, main: true, new_parts: vec![], even_odd: edits.even_odd.filter(|&e| e != self.view.even_odd) };
         let mut numbering_xml = None::<String>;
         let mut next_ids = None::<(u32, u32)>;
 
@@ -1573,7 +1606,8 @@ impl Session {
                 continue;
             }
             // A paragraph whose cell is gone stays (cells are never removed).
-            if unit.kind == Kind::Para && ancestors(u).any(|a| self.units[a].kind == Kind::Cell && missing(a)) {
+            // A paragraph whose cell, or header or footer, isn't on the page stays.
+            if unit.kind == Kind::Para && ancestors(u).any(|a| matches!(self.units[a].kind, Kind::Cell | Kind::Root) && missing(a)) {
                 continue;
             }
             deleted.insert(u);
@@ -1681,7 +1715,7 @@ impl Session {
                 changed_parts.push((name.clone(), xml));
             }
         }
-        if changed_parts.is_empty() && out.new_rels.is_empty() && numbering_xml.is_none() && out.media.is_empty() && out.new_parts.is_empty() {
+        if changed_parts.is_empty() && out.new_rels.is_empty() && numbering_xml.is_none() && out.media.is_empty() && out.new_parts.is_empty() && out.even_odd.is_none() {
             return Ok(self.file.clone());
         }
         self.package(changed_parts, &out, numbering_xml)
@@ -1772,30 +1806,72 @@ impl Session {
         Ok(())
     }
 
-    /// A header or footer made where the file had none: its own part, related and referenced from
-    /// the last section.
+    /// Headers and footers made where the file had none (each its own part, related and referenced
+    /// from the last section), the first-page option on the section, and rows that repeat.
     fn new_margins(&self, edits: &Edits, out: &mut Out, numbering: &mut Option<String>, next_ids: &mut Option<(u32, u32)>) -> Result<(), DocError> {
         let mut names: HashSet<String> = zip::ZipArchive::new(Cursor::new(self.file.as_slice())).map_err(|e| invalid(e.to_string()))?.file_names().flatten().map(|n| n.into_owned()).collect();
-        for (kind, paras, exists) in [("header", &edits.new_header, self.view.header.is_some()), ("footer", &edits.new_footer, self.view.footer.is_some())] {
-            let Some(paras) = paras.as_ref().filter(|p| !p.is_empty() && !exists) else { continue };
+        let mut references = vec![];
+        let mut taken: HashSet<String> = self.rels.keys().cloned().collect();
+        for m in &edits.new_margins {
+            let kind: &'static str = match m.kind.as_str() {
+                "header" => "header",
+                "footer" => "footer",
+                _ => continue,
+            };
+            if !matches!(m.variant.as_str(), "default" | "first" | "even") || m.paras.is_empty() || self.view.margins.iter().any(|x| x.kind == kind && x.variant == m.variant) {
+                continue;
+            }
             out.main = false;
             let tag = if kind == "header" { "hdr" } else { "ftr" };
             let mut xml = format!("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:{tag} xmlns:w=\"{W_NS}\" xmlns:r=\"{R_NS}\">");
-            for p in paras {
+            for p in &m.paras {
                 xml.push_str(&self.paragraph_xml(p, None, None, out, numbering, next_ids)?);
             }
             let _ = write!(xml, "</w:{tag}>");
             let name = (1..).map(|n| format!("word/{kind}{n}.xml")).find(|n| !names.contains(n)).unwrap_or_default();
             names.insert(name.clone());
-            let rid = (1..).map(|n| format!("rIdJayE{kind}{n}")).find(|id| !self.rels.contains_key(id)).unwrap_or_default();
+            let rid = (1..).map(|n| format!("rIdJayE{kind}{n}")).find(|id| !taken.contains(id)).unwrap_or_default();
+            taken.insert(rid.clone());
             let ns = if self.has_r_ns { String::new() } else { format!(" xmlns:r=\"{R_NS}\"") };
-            let reference = format!("<w:{kind}Reference{ns} w:type=\"default\" r:id=\"{rid}\"/>");
-            match &self.body_sect {
-                Some(sect) if self.xml[sect.clone()].ends_with("/>") => out.edit(sect.clone(), format!("<w:sectPr>{reference}</w:sectPr>")),
-                Some(sect) => out.insert(start_tag_end(&self.xml, sect.start), 0, reference),
-                None => out.insert(self.body_end, usize::MAX, format!("<w:sectPr>{reference}</w:sectPr>")),
-            }
+            references.push(format!("<w:{kind}Reference{ns} w:type=\"{}\" r:id=\"{rid}\"/>", m.variant));
             out.new_parts.push((name, xml, rid, kind));
+        }
+        let title = edits.title_pg.filter(|&t| t != self.view.title_pg);
+        if !references.is_empty() || title.is_some() {
+            // The section's children rewritten in their order, its start tag kept.
+            let order = ["headerReference", "footerReference", "footnotePr", "endnotePr", "type", "pgSz", "pgMar", "paperSrc", "pgBorders", "lnNumType", "pgNumType", "cols", "formProt", "vAlign", "noEndnote", "titlePg", "textDirection", "bidi", "rtlGutter", "docGrid", "printerSettings", "sectPrChange"];
+            let raw = self.body_sect.as_ref().map(|r| self.xml[r.clone()].to_owned()).unwrap_or_default();
+            let mut props = Props::parse(&raw);
+            props.0.extend(references.into_iter().map(|r| ((if r.starts_with("<w:header") { "headerReference" } else { "footerReference" }).to_owned(), r)));
+            if let Some(t) = title {
+                props.set("titlePg", t.then(|| "<w:titlePg/>".to_owned()));
+            }
+            let inner = props.write("sectPr", &order);
+            let inner = inner.strip_prefix("<w:sectPr>").and_then(|x| x.strip_suffix("</w:sectPr>")).unwrap_or("").to_owned();
+            match &self.body_sect {
+                Some(sect) if raw.ends_with("/>") => out.edit(sect.clone(), format!("<w:sectPr>{inner}</w:sectPr>")),
+                Some(sect) => {
+                    let open = start_tag_end(&self.xml, sect.start);
+                    out.edit(open..sect.end - "</w:sectPr>".len(), inner);
+                }
+                None => out.insert(self.body_end, usize::MAX, format!("<w:sectPr>{inner}</w:sectPr>")),
+            }
+        }
+        // Rows that repeat at the top of each page: w:tblHeader in their properties.
+        for h in &edits.row_headers {
+            let Some(row) = self.units.get(h.row).filter(|u| u.kind == Kind::Row && u.header != h.on) else { continue };
+            let raw = &self.xml[row.span.clone()];
+            let node = xml::parse(raw.as_bytes())?;
+            match node.child("trPr") {
+                Some(pr) => {
+                    let mut props = Props::parse(&raw[pr.span.clone()]);
+                    props.set("tblHeader", h.on.then(|| "<w:tblHeader/>".to_owned()));
+                    let order = ["cnfStyle", "divId", "gridBefore", "gridAfter", "wBefore", "wAfter", "cantSplit", "trHeight", "tblHeader", "tblCellSpacing", "jc", "hidden", "ins", "del", "trPrChange"];
+                    out.edit(row.span.start + pr.span.start..row.span.start + pr.span.end, props.write("trPr", &order));
+                }
+                None if h.on => out.insert(start_tag_end(&self.xml, row.span.start), 0, "<w:trPr><w:tblHeader/></w:trPr>".into()),
+                None => {}
+            }
         }
         Ok(())
     }
@@ -2164,6 +2240,20 @@ impl Session {
             }
             replaced.insert("word/numbering.xml".into(), n.into_bytes());
         }
+        if let Some(on) = out.even_odd {
+            match zip_entry(&mut zip, "word/settings.xml")?.and_then(|x| String::from_utf8(x).ok()) {
+                Some(settings) => {
+                    replaced.insert("word/settings.xml".into(), even_and_odd(&settings, on).into_bytes());
+                }
+                // No settings part yet: one with only this setting.
+                None if on => {
+                    let _ = write!(rel_add, "<Relationship Id=\"rIdJayESettings\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings\" Target=\"settings.xml\"/>");
+                    let _ = write!(types_add, "<Override PartName=\"/word/settings.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml\"/>");
+                    replaced.insert("word/settings.xml".into(), format!("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:settings xmlns:w=\"{W_NS}\"><w:evenAndOddHeaders/></w:settings>").into_bytes());
+                }
+                None => {}
+            }
+        }
         if !types_add.is_empty() {
             let end = types_now.rfind("</Types>").ok_or_else(|| invalid("[Content_Types].xml"))?;
             let mut types = types_now.clone();
@@ -2205,6 +2295,31 @@ impl Session {
         }
         Ok(writer.finish().map_err(|e| invalid(e.to_string()))?.into_inner())
     }
+}
+
+/// word/settings.xml with `w:evenAndOddHeaders` on or off, in the place the schema gives it.
+fn even_and_odd(settings: &str, on: bool) -> String {
+    const AFTER: [&str; 57] = [
+        "bookFoldRevPrinting", "bookFoldPrinting", "bookFoldPrintingSheets", "drawingGridHorizontalSpacing", "drawingGridVerticalSpacing", "displayHorizontalDrawingGridEvery",
+        "displayVerticalDrawingGridEvery", "doNotUseMarginsForDrawingGridOrigin", "drawingGridHorizontalOrigin", "drawingGridVerticalOrigin", "doNotShadeFormData", "noPunctuationKerning",
+        "characterSpacingControl", "printTwoOnOne", "strictFirstAndLastChars", "noLineBreaksAfter", "noLineBreaksBefore", "savePreviewPicture", "doNotValidateAgainstSchema", "saveInvalidXml",
+        "ignoreMixedContent", "alwaysShowPlaceholderText", "doNotDemarcateInvalidXml", "saveXmlDataOnly", "useXSLTWhenSaving", "saveThroughXslt", "showXMLTags", "alwaysMergeEmptyNamespace",
+        "updateFields", "hdrShapeDefaults", "footnotePr", "endnotePr", "compat", "docVars", "rsids", "mathPr", "attachedSchema", "themeFontLang", "clrSchemeMapping",
+        "doNotIncludeSubdocsInStats", "doNotAutoCompressPictures", "forceUpgrade", "captions", "readModeInkLockDown", "smartTagType", "schemaLibrary", "shapeDefaults", "doNotEmbedSmartTags",
+        "decimalSymbol", "listSeparator", "docId", "chartTrackingRefBased", "conflictMode", "discardImageEditingData", "defaultImageDpi", "persistentDocumentId", "rsid",
+    ];
+    let Ok(root) = xml::parse(settings.as_bytes()) else { return settings.to_owned() };
+    let mut out = settings.to_owned();
+    match root.child("evenAndOddHeaders") {
+        Some(e) if !on => out.replace_range(e.span.clone(), ""),
+        Some(e) => out.replace_range(e.span.clone(), "<w:evenAndOddHeaders/>"),
+        None if on => {
+            let at = root.nodes().find(|c| AFTER.contains(&c.name.as_str())).map(|c| c.span.start).unwrap_or(root.span.end - "</w:settings>".len());
+            out.insert_str(at, "<w:evenAndOddHeaders/>");
+        }
+        None => {}
+    }
+    out
 }
 
 /// Every element and attribute prefix is declared (Word refuses the file otherwise).
@@ -2272,7 +2387,7 @@ mod tests {
     }
 
     fn edits(s: &Session, paras: Vec<EditPara>) -> Edits {
-        Edits { present: all_units(s), paras, tables: vec![], rows: vec![], cells: vec![], removed_cells: vec![], new_header: None, new_footer: None }
+        Edits { present: all_units(s), paras, ..Default::default() }
     }
 
     fn para(s: &Session, text: &str) -> usize {
@@ -2472,7 +2587,7 @@ mod tests {
     fn the_header_is_edited_in_its_own_part() {
         let bytes = with_header();
         let s = open(&bytes);
-        let header = s.view.header.clone().unwrap();
+        let header = s.view.margins.iter().find(|m| m.kind == "header" && m.variant == "default").cloned().unwrap();
         assert!(header.html.contains("Company"));
         let p = para(&s, "Company");
         assert_eq!(s.units[p].part, 1);
@@ -2526,17 +2641,53 @@ mod tests {
     fn a_header_where_there_was_none() {
         let bytes = sample();
         let s = open(&bytes);
-        assert!(s.view.header.is_none());
+        assert!(s.view.margins.is_empty() && !s.view.title_pg);
         let mut p = edit(None, &s, vec![text("New header", None)]);
         p.align = String::new();
-        let saved = s.save(&Edits { new_header: Some(vec![p]), ..edits(&s, vec![]) }, &[]).unwrap();
+        let saved = s.save(&Edits { new_margins: vec![NewMargin { kind: "header".into(), variant: "default".into(), paras: vec![p] }], ..edits(&s, vec![]) }, &[]).unwrap();
         let x = entry(&saved, "word/document.xml");
         assert!(x.contains("<w:sectPr><w:headerReference w:type=\"default\" r:id=\"rIdJayEheader1\"/><w:pgSz"), "{x}");
         assert!(entry(&saved, "word/header1.xml").contains(">New header</w:t>"));
         assert!(entry(&saved, "word/_rels/document.xml.rels").contains("Id=\"rIdJayEheader1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/header\" Target=\"header1.xml\""));
         assert!(entry(&saved, "[Content_Types].xml").contains("PartName=\"/word/header1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml\""));
         let again = open(&saved);
-        assert!(again.view.header.unwrap().html.contains("New header"));
+        assert!(again.view.margins[0].html.contains("New header"));
+    }
+
+    #[test]
+    fn first_and_even_page_headers_and_repeated_rows() {
+        let bytes = sample();
+        let s = open(&bytes);
+        let para = |t: &str| {
+            let mut p = edit(None, &s, vec![text(t, None)]);
+            p.align = String::new();
+            p
+        };
+        let table = (0..s.body()).find(|&u| s.units[u].kind == Kind::Table).unwrap();
+        let row = s.children_of(table, Kind::Row)[0];
+        let margins = vec![
+            NewMargin { kind: "header".into(), variant: "default".into(), paras: vec![para("Every page")] },
+            NewMargin { kind: "header".into(), variant: "first".into(), paras: vec![para("Cover")] },
+            NewMargin { kind: "footer".into(), variant: "even".into(), paras: vec![para("Even pages")] },
+        ];
+        let saved = s.save(&Edits { new_margins: margins, title_pg: Some(true), even_odd: Some(true), row_headers: vec![RowHeader { row, on: true }], ..edits(&s, vec![]) }, &[]).unwrap();
+        let x = entry(&saved, "word/document.xml");
+        check_namespaces(&x).unwrap();
+        assert!(x.contains("<w:sectPr><w:headerReference w:type=\"default\" r:id=\"rIdJayEheader1\"/><w:headerReference w:type=\"first\" r:id=\"rIdJayEheader2\"/><w:footerReference w:type=\"even\" r:id=\"rIdJayEfooter1\"/><w:pgSz"), "{x}");
+        assert!(x.contains("<w:titlePg/></w:sectPr>"), "{x}");
+        assert!(x.contains("<w:tr><w:trPr><w:tblHeader/></w:trPr><w:tc>"), "{x}");
+        let again = open(&saved);
+        let v = &again.view;
+        assert!(v.title_pg && v.even_odd);
+        let has = |kind: &str, variant: &str, t: &str| v.margins.iter().any(|m| m.kind == kind && m.variant == variant && m.html.contains(t));
+        assert!(has("header", "default", "Every page") && has("header", "first", "Cover") && has("footer", "even", "Even pages"));
+        assert!(v.html.contains("data-header=\"1\""));
+        // Turned off again: titlePg and the even pages setting go, the parts stay.
+        let off = again.save(&Edits { title_pg: Some(false), even_odd: Some(false), ..edits(&again, vec![]) }, &[]).unwrap();
+        assert!(!entry(&off, "word/document.xml").contains("titlePg"));
+        let back = open(&off);
+        assert!(!back.view.title_pg && !back.view.even_odd);
+        assert_eq!(even_and_odd("<w:settings xmlns:w=\"w\"><w:zoom/><w:compat/></w:settings>", true), "<w:settings xmlns:w=\"w\"><w:zoom/><w:evenAndOddHeaders/><w:compat/></w:settings>");
     }
 
     #[test]

@@ -118,7 +118,7 @@ Two layers: the **engine** in Rust ([`crates/jay-docs`](../crates/jay-docs), no 
 **Size:** the installer is 16.5 MiB, above the 15 MB goal because of the TeX engine (ICU's data is most of it).
 
 **Next stages:**
-- **7. Editing (the rest):** rows and columns in existing tables; adding a header where there's none.
+- **7. Editing (the rest):** everything on the list is done (the last: first-page and even-page headers, and a table's header row repeated); what's left is closing the stage.
 - **8. Converter:** one batch screen for every kind of file, with a queue, progress, cancel and asking before overwriting.
 - **9. Release:** file associations ("Open with"), Jay-E in Jay-H's catalog, installing on a clean machine.
 
