@@ -132,12 +132,8 @@ export function createPdfTools({ doc, sizes, pages, scale, scroller, editor, reb
     'div',
     { class: 'doc-toolbar pdf-edit-bar', role: 'toolbar', 'aria-label': t('PDF editing') },
     pagesButton,
-    h('span', { class: 'dx-sep', 'aria-hidden': 'true' }),
-    h('span', { class: 'img-tool-group' }, tools),
-    colorInput,
-    sizeSelect,
-    h('span', { class: 'dx-sep', 'aria-hidden': 'true' }),
-    undoButton,
+    h('span', { class: 'tb-group', role: 'group', 'aria-label': t('Tools') }, tools, colorInput, sizeSelect),
+    h('span', { class: 'tb-group', role: 'group', 'aria-label': t('History') }, undoButton),
     h('span', { class: 'dx-toolbar-end' }, dirtyMark, status, saveButton),
   );
   if (editor.message) status.textContent = editor.message;

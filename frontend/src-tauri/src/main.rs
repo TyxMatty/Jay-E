@@ -9,6 +9,8 @@ mod image;
 mod latex;
 mod pdf;
 mod pdf_edit;
+#[cfg(windows)]
+mod taskbar_icon;
 mod text;
 mod update;
 mod video;
@@ -117,6 +119,8 @@ fn main() {
             update::update_download,
             update::update_install,
             open_link,
+            #[cfg(windows)]
+            taskbar_icon::set_taskbar_icon,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Jay-E");

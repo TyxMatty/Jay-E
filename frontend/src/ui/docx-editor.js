@@ -53,6 +53,22 @@ export async function createDocxEditor(file, fallback) {
   const header = h('div', { class: 'dx-margin is-header', contenteditable: 'true', spellcheck: 'true', role: 'textbox', 'aria-multiline': 'true', 'aria-label': t('Header'), hidden: true });
   const footer = h('div', { class: 'dx-margin is-footer', contenteditable: 'true', spellcheck: 'true', role: 'textbox', 'aria-multiline': 'true', 'aria-label': t('Footer'), hidden: true });
   const copies = h('div', { class: 'dx-copies', 'aria-hidden': 'true' });
+  /** An empty paragraph in the document's normal style (or `styleId`, if the file has it). */
+  const plainPara = (styleId = '') => {
+    const style = view.styles.find((x) => x.id === styleId)?.id ?? '';
+    return h('p', { class: `dx-p dx-p-${styleClass(style || view.default_style)}`, 'data-style': style, 'data-num': '', 'data-align': '', 'data-ind': '', 'data-line': '' }, h('br'));
+  };
+  for (const [el, styleId] of [
+    [header, 'Header'],
+    [footer, 'Footer'],
+  ]) {
+    el.addEventListener('focus', () => {
+      if (el.dataset.new && !el.querySelector('p')) {
+        el.append(plainPara(styleId));
+        getSelection().collapse(el.querySelector('p'), 0);
+      }
+    });
+  }
   const page = h('div', { class: 'dx-page is-paged', 'data-doc': docKey }, header, body, footer, copies);
   /** The places text is edited: the body, and the header and footer when the file has them. */
   const editables = () => [body, header, footer].filter((e) => !e.hidden);
@@ -143,7 +159,11 @@ export async function createDocxEditor(file, fallback) {
         delete el.dataset.push;
       }
     }
+    for (const tr of body.querySelectorAll('tr.dx-spacer')) tr.remove();
     const rects = blocks.map((el) => rectIn(el));
+    // A table longer than what's left of the page goes on row by row: each row that would cross the
+    // bottom margin starts on the next page, after a borderless spacer row (never saved).
+    const rowRects = new Map(blocks.filter((el) => el.tagName === 'TABLE').map((t) => [t, [...t.rows].map((tr) => rectIn(tr))]));
     let offset = 0;
     let breakAfter = false;
     let end = top;
@@ -155,11 +175,30 @@ export async function createDocxEditor(file, fallback) {
       if (breakAfter) target = (k + 1) * stride + top;
       else if (y < k * stride + top - 0.5) target = k * stride + top;
       else if (y + r.h > k * stride + height - bottom + 0.5 && r.h <= height - top - bottom) target = (k + 1) * stride + top;
-      if (target != null && target > y) {
+      // A table crossing the bottom margin splits there, as in Word (it doesn't jump whole).
+      const splits = el.tagName === 'TABLE' && !breakAfter && y >= k * stride + top - 0.5 && y + r.h > k * stride + height - bottom + 0.5;
+      if (target != null && target > y && !splits) {
         el.style.marginTop = `${target - y}px`;
         el.dataset.push = '1';
         offset += target - y;
         y = target;
+      }
+      if (el.tagName === 'TABLE' && (splits || r.h > height - top - bottom)) {
+        const before = offset;
+        [...el.rows].forEach((tr, j) => {
+          const rr = rowRects.get(el)[j];
+          const ry = rr.y + offset;
+          const rk = Math.floor(ry / stride);
+          if (ry + rr.h > rk * stride + height - bottom + 0.5 && rr.h <= height - top - bottom) {
+            const push = (rk + 1) * stride + top - ry;
+            const spacer = h('tr', { class: 'dx-spacer', 'aria-hidden': 'true', contenteditable: 'false' }, h('td', { colspan: String(Math.max(1, tr.cells.length)), style: `height:${push}px` }));
+            tr.before(spacer);
+            offset += push;
+          }
+        });
+        end = y + r.h + (offset - before);
+        breakAfter = false;
+        return;
       }
       end = y + r.h;
       breakAfter = !!el.querySelector('.dx-pagebreak');
@@ -175,7 +214,7 @@ export async function createDocxEditor(file, fallback) {
         [header, pg.header],
         [footer, pg.h - pg.footer],
       ]) {
-        if (el.hidden) continue;
+        if (el.hidden || (el.dataset.new && !el.textContent.trim())) continue;
         const copy = el.cloneNode(true);
         copy.removeAttribute('contenteditable');
         copy.removeAttribute('data-root');
@@ -319,11 +358,12 @@ export async function createDocxEditor(file, fallback) {
     // New tables go whole; their paragraphs aren't sent again below.
     for (const table of allIn('table:not([data-u])')) {
       if (table.parentElement.closest('table:not([data-u])')) continue;
-      const rows = [...table.rows].map((tr) => [...tr.cells].map((td) => [...td.children].filter((c) => c.tagName === 'P').map(newPara)));
+      const rows = [...table.rows].filter((tr) => !tr.classList.contains('dx-spacer')).map((tr) => [...tr.cells].map((td) => [...td.children].filter((c) => c.tagName === 'P').map(newPara)));
       const cols = [...(table.rows[0]?.cells ?? [])].map((td) => (parseFloat(td.style.width) || 0) || null).filter(Boolean);
       tables.push({ el: table, after: afterOf(table), container: containerOf(table), cols, rows });
     }
-    const inNewTable = (el) => !!el.closest('table:not([data-u])');
+    // New tables, rows, cells and margins are sent whole, not paragraph by paragraph.
+    const inNewTable = (el) => !!el.closest('table:not([data-u]), td:not([data-u]), .dx-margin[data-new]');
     const blocks = allIn('p, table');
     for (const t of tables) t.order = blocks.indexOf(t.el) + 1;
     for (const t of tables) delete t.el;
@@ -347,7 +387,28 @@ export async function createDocxEditor(file, fallback) {
         items: itemsOf(p),
       });
     }
-    return { present, paras: out, tables };
+    const paraList = (box) => [...box.children].filter((c) => c.tagName === 'P').map(newPara);
+    const prevWithU = (el) => {
+      for (let s = el.previousElementSibling; s; s = s.previousElementSibling) if (s.dataset.u != null) return Number(s.dataset.u);
+      return null;
+    };
+    const rows = [];
+    for (const tr of allIn('tr:not([data-u]):not(.dx-spacer)')) {
+      const table = tr.closest('table');
+      if (table?.dataset.u == null) continue;
+      const after = prevWithU(tr);
+      rows.push({ order: blocks.indexOf(tr.querySelector('p')) + 1, table: Number(table.dataset.u), after, template: Number(tr.dataset.tpl || after || 0), cells: [...tr.cells].map(paraList) });
+    }
+    const cells = [];
+    for (const td of allIn('td:not([data-u])')) {
+      const tr = td.closest('tr');
+      if (tr?.dataset.u == null) continue;
+      const after = prevWithU(td);
+      cells.push({ order: blocks.indexOf(td.querySelector('p')) + 1, row: Number(tr.dataset.u), after, template: Number(td.dataset.tpl || after || 0), column: td.cellIndex, paras: paraList(td) });
+    }
+    const removed_cells = [...removedCells].filter(([u]) => !present.includes(Number(u))).map(([u, column]) => ({ cell: Number(u), column }));
+    const margin = (el) => (el.dataset.new && el.textContent.trim() ? paraList(el) : null);
+    return { present, paras: out, tables, rows, cells, removed_cells, new_header: margin(header), new_footer: margin(footer) };
   }
 
   // The caret as (paragraph, character), to put it back after the page is rebuilt.
@@ -386,13 +447,21 @@ export async function createDocxEditor(file, fallback) {
     unpick();
     body.innerHTML = view.html;
     const pg = view.page;
-    for (const [el, margin] of [
-      [header, view.header],
-      [footer, view.footer],
+    for (const [el, margin, kind] of [
+      [header, view.header, 'header'],
+      [footer, view.footer, 'footer'],
     ]) {
-      el.hidden = !margin;
+      el.hidden = false;
       el.innerHTML = margin?.html ?? '';
-      if (margin) el.dataset.root = String(margin.u);
+      if (margin) {
+        el.dataset.root = String(margin.u);
+        delete el.dataset.new;
+      } else {
+        // None in the file: an empty one to click into, made on save if something is written.
+        delete el.dataset.root;
+        el.dataset.new = kind;
+        el.dataset.placeholder = kind === 'header' ? t('Header') : t('Footer');
+      }
       Object.assign(el.style, { left: `${pg.left}pt`, width: `${pg.w - pg.left - pg.right}pt` });
     }
     header.style.top = `${pg.header}pt`;
@@ -443,7 +512,6 @@ export async function createDocxEditor(file, fallback) {
     return el;
   };
   const button = (icon, label, onClick, extra = {}) => keepSelection(h('button', { type: 'button', class: 'icon-btn', title: label, 'aria-label': label, html: icons[icon], onClick, ...extra }));
-  const sep = () => h('span', { class: 'dx-sep', 'aria-hidden': 'true' });
 
   function restoreRange() {
     if (!lastRange) return;
@@ -613,7 +681,7 @@ export async function createDocxEditor(file, fallback) {
     if (!p) return;
     const room = view.page.w - view.page.left - view.page.right;
     const width = Math.floor((room / cols) * 10) / 10;
-    const normal = () => h('p', { class: `dx-p dx-p-${styleClass(view.default_style)}`, 'data-style': '', 'data-num': '', 'data-align': '', 'data-ind': '', 'data-line': '' }, h('br'));
+    const normal = () => plainPara();
     const table = h(
       'table',
       { class: `dx-table dx-t-${styleClass(view.table_style ?? '')} is-bordered` },
@@ -663,6 +731,66 @@ export async function createDocxEditor(file, fallback) {
   addEventListener('pointerdown', (e) => {
     if (!grid.hidden && !grid.contains(e.target) && !e.target.closest('.dx-table-button')) grid.hidden = true;
   });
+
+  // ----- Rows and columns of a table -----
+  /** Cells taken out with their column (data-u → column), sent on save if still gone. */
+  const removedCells = new Map();
+  function cellAt() {
+    const sel = getSelection();
+    const n = sel.rangeCount ? sel.anchorNode : lastRange?.startContainer;
+    const td = (n?.nodeType === 1 ? n : n?.parentElement)?.closest('td');
+    return td && inside(td) ? td : null;
+  }
+  /** A new cell shaped like `td` (its width; the file's cell it copies on save). */
+  function cellLike(td) {
+    const c = h('td', { style: td.getAttribute('style') ?? undefined }, plainPara());
+    const tpl = td.dataset.u ?? td.dataset.tpl;
+    if (tpl != null) c.dataset.tpl = tpl;
+    return c;
+  }
+  function tableEdit(fn) {
+    restoreRange();
+    const td = cellAt();
+    if (!td) return;
+    checkpoint();
+    fn(td, td.closest('tr'), td.closest('table'));
+    renumber();
+    refresh();
+  }
+  const insertRow = (below) =>
+    tableEdit((td, tr) => {
+      const row = h('tr', {}, [...tr.cells].map(cellLike));
+      const tpl = tr.dataset.u ?? tr.dataset.tpl;
+      if (tpl != null) row.dataset.tpl = tpl;
+      below ? tr.after(row) : tr.before(row);
+      getSelection().collapse(row.cells[Math.min(td.cellIndex, row.cells.length - 1)].querySelector('p'), 0);
+    });
+  const insertColumn = (right) =>
+    tableEdit((td, tr, table) => {
+      const index = td.cellIndex;
+      for (const row of [...table.rows].filter((r) => !r.classList.contains('dx-spacer'))) {
+        const ref = row.cells[Math.min(index, row.cells.length - 1)];
+        if (!ref) continue;
+        const cell = cellLike(ref);
+        right ? ref.after(cell) : ref.before(cell);
+      }
+    });
+  const deleteRow = () =>
+    tableEdit((td, tr, table) => {
+      if ([...table.rows].filter((r) => !r.classList.contains('dx-spacer')).length === 1) table.remove();
+      else tr.remove();
+    });
+  const deleteColumn = () =>
+    tableEdit((td, tr, table) => {
+      const index = td.cellIndex;
+      for (const row of [...table.rows].filter((r) => !r.classList.contains('dx-spacer'))) {
+        const cell = row.cells[index];
+        if (!cell) continue;
+        if (cell.dataset.u != null) removedCells.set(cell.dataset.u, index);
+        cell.remove();
+      }
+      if (![...table.rows].some((row) => row.cells.length)) table.remove();
+    });
 
   function addLink() {
     restoreRange();
@@ -766,37 +894,44 @@ export async function createDocxEditor(file, fallback) {
   const sizeDown = button('minus', t('Smaller'), () => setSize((Number(sizeInput.value) || 11) - 1));
   const sizeUp = button('plus', t('Bigger'), () => setSize((Number(sizeInput.value) || 11) + 1));
 
+  // Groups of related controls, each in one segment, as Jay-C's segmented controls.
+  const group = (label, ...items) => h('span', { class: 'tb-group', role: 'group', 'aria-label': label }, ...items);
+  // Shown while the cursor is in a table.
+  const tableGroup = group(
+    t('Table'),
+    button('rowAbove', t('Insert row above'), () => insertRow(false)),
+    button('rowBelow', t('Insert row below'), () => insertRow(true)),
+    button('colLeft', t('Insert column left'), () => insertColumn(false)),
+    button('colRight', t('Insert column right'), () => insertColumn(true)),
+    button('rowDelete', t('Delete row'), deleteRow),
+    button('colDelete', t('Delete column'), deleteColumn),
+  );
+  tableGroup.hidden = true;
   const toolbar = h(
     'div',
     { class: 'doc-toolbar dx-toolbar', role: 'toolbar', 'aria-label': t('Document tools') },
-    h('span', { class: 'img-tool-group' }, undoButton, redoButton, printButton),
-    sep(),
-    zoomSelect,
-    sep(),
-    styleSelect,
-    sep(),
-    fontSelect,
-    sep(),
-    h('span', { class: 'img-tool-group dx-size-group' }, sizeDown, sizeInput, sizeUp),
-    sep(),
-    h('span', { class: 'img-tool-group' }, toggles.map(([, b]) => b), colorButton, highlightButton, colorInput, highlightInput),
-    sep(),
-    button('link', t('Insert link (Ctrl+K)'), addLink),
-    button('image', t('Insert image'), addImage),
-    h('span', { class: 'dx-table-menu' }, button('table', t('Insert table'), () => (grid.hidden = !grid.hidden), { class: 'icon-btn dx-table-button' }), grid),
-    sep(),
-    h('span', { class: 'img-tool-group' }, alignButtons, spacingSelect),
-    sep(),
-    h(
-      'span',
-      { class: 'img-tool-group' },
+    group(t('History'), undoButton, redoButton, printButton),
+    group(t('Zoom'), zoomSelect),
+    group(t('Paragraph style'), styleSelect, fontSelect),
+    group(t('Font size'), sizeDown, sizeInput, sizeUp),
+    group(t('Text'), toggles.map(([, b]) => b), colorButton, highlightButton, colorInput, highlightInput),
+    group(
+      t('Insert'),
+      button('link', t('Insert link (Ctrl+K)'), addLink),
+      button('image', t('Insert image'), addImage),
+      h('span', { class: 'dx-table-menu' }, button('table', t('Insert table'), () => (grid.hidden = !grid.hidden), { class: 'icon-btn dx-table-button' }), grid),
+    ),
+    group(t('Alignment'), alignButtons, spacingSelect),
+    tableGroup,
+    group(
+      t('Lists'),
       button('listBullet', t('Bulleted list'), () => toggleList(true)),
       button('listNumber', t('Numbered list'), () => toggleList(false)),
       button('outdent', t('Decrease indent'), () => indent(-1)),
       button('indent', t('Increase indent'), () => indent(1)),
       button('clearFormat', t('Clear formatting'), () => exec('removeFormat')),
     ),
-    h('span', { class: 'dx-toolbar-end' }, dirtyMark, status, exportSelect, h('button', { type: 'button', class: 'btn btn-secondary', onClick: exportIt }, t('Export')), saveButton),
+    h('span', { class: 'dx-toolbar-end' }, dirtyMark, status, group(t('Export as'), exportSelect, h('button', { type: 'button', class: 'btn btn-secondary', onClick: exportIt }, t('Export'))), saveButton),
   );
 
   /** The toolbar shows what is under the cursor. */
@@ -813,6 +948,7 @@ export async function createDocxEditor(file, fallback) {
     fontSelect.value = font;
     sizeInput.value = String(Math.round(parseFloat(cs.fontSize) * 0.75 * 2) / 2);
     colorBar.style.background = cs.color;
+    tableGroup.hidden = !cellAt();
     if (p) {
       const style = p.dataset.style || view.default_style;
       if (![...styleSelect.options].some((o) => o.value === style)) styleSelect.append(h('option', { value: style }, styleName(view.styles.find((s) => s.id === style)?.name || style)));

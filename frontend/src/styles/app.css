@@ -1853,12 +1853,6 @@ fieldset > h3 {
   height: 30px;
 }
 
-.dx-sep {
-  width: 1px;
-  height: 20px;
-  background: var(--border);
-}
-
 .dx-style {
   width: 128px;
 }
@@ -2371,4 +2365,108 @@ fieldset > h3 {
 .pdf-org-end {
   width: 40px;
   min-height: 120px;
+}
+
+/* Toolbar groups (DOCX editor, PDF viewer and editing): related controls in one segment, as Jay-C's
+   segmented controls, in each style's own control radius; the pressed ones take the accent. */
+.tb-group {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius-control) + 3px);
+  background: var(--bg);
+}
+
+.doc-toolbar .tb-group .icon-btn {
+  width: 30px;
+  height: 30px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.doc-toolbar .tb-group .icon-btn:hover:not(:disabled) {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.doc-toolbar .tb-group .icon-btn[aria-pressed='true'] {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: var(--accent-soft);
+  color: var(--accent-text, var(--accent));
+}
+
+.doc-toolbar .tb-group .input {
+  height: 30px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.doc-toolbar .tb-group .input:hover,
+.doc-toolbar .tb-group .input:focus-visible {
+  background: var(--surface-3);
+}
+
+.doc-toolbar .tb-group .btn {
+  min-height: 30px;
+}
+
+.doc-toolbar .tb-group .dx-size {
+  width: 46px;
+}
+
+.doc-toolbar .tb-group .pdf-color {
+  width: 30px;
+  height: 30px;
+  border-color: transparent;
+}
+
+.dx-toolbar,
+.pdf-edit-bar {
+  gap: 6px;
+}
+
+/* A header or footer the file doesn't have: an empty area that names itself on hover. */
+.dx-margin[data-new]:empty::before {
+  content: attr(data-placeholder);
+  color: #9aa0a6;
+  font: 12px var(--font);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.dx-margin[data-new]:empty:hover::before,
+.dx-margin[data-new]:empty:focus::before {
+  opacity: 1;
+}
+
+.dx-margin[data-new]:empty {
+  min-height: 24pt;
+  cursor: text;
+}
+
+.dx-margin[data-new]:empty:hover {
+  outline: 1px dashed #c0c4cc;
+}
+
+.tb-group[hidden] {
+  display: none;
+}
+
+/* The space a split table leaves at the bottom of a page and the top of the next (ui/docx-editor.js
+   paginate): no borders, no padding, not printed. */
+.dx-page tr.dx-spacer > td,
+.dx-page table.is-bordered tr.dx-spacer > td {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+@media print {
+  #print-root tr.dx-spacer {
+    display: none;
+  }
 }

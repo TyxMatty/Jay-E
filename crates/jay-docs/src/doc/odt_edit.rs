@@ -257,9 +257,13 @@ struct Unit {
     /// Cells and roots: where a first paragraph goes, and whether the cell is `<…/>`.
     content_start: usize,
     empty: bool,
+    /// Tables: their `table:table-column`s and how many columns each stands for.
+    columns: Vec<(Range<usize>, usize)>,
 }
 
 pub struct Session {
+    /// The first master page (in styles.xml): where a new header or footer goes.
+    master: Option<Range<usize>>,
     file: Vec<u8>,
     xml: String,
     parts: Vec<(String, Range<usize>)>,
@@ -412,7 +416,7 @@ impl Session {
             header: None,
             footer: None,
         };
-        let out = Session { file: bytes.to_vec(), xml: String::new(), parts, autos, units: vec![], atoms: vec![], runs: vec![], links: vec![], styles: Styles { defs: HashMap::new(), default_p: PProps::default(), default_r: RProps::default(), named: vec![] }, names, images: vec![], view };
+        let out = Session { master: master.map(|m| m.span.clone()), file: bytes.to_vec(), xml: String::new(), parts, autos, units: vec![], atoms: vec![], runs: vec![], links: vec![], styles: Styles { defs: HashMap::new(), default_p: PProps::default(), default_r: RProps::default(), named: vec![] }, names, images: vec![], view };
         let mut ctx = Ctx { xml: &all, part: 0, styles: &styles, zip, image_index: HashMap::new(), img_url, list_styles: &list_styles, numbering: HashMap::new(), last_list: HashMap::new(), out };
         let text = root.child("body").and_then(|b| b.child("text")).ok_or_else(|| invalid("not a text document (no office:text)"))?;
         let mut html = String::new();
@@ -433,7 +437,7 @@ impl Session {
         }
         let numbering = std::mem::take(&mut ctx.numbering);
         let mut session = ctx.out;
-        session.units.push(Unit { kind: Kind::Block, part: 0, span: 0..0, parent: None, tag: String::new(), style: String::new(), direct: Direct::default(), marks: vec![], lists: vec![], content_start: body_start, empty: false });
+        session.units.push(Unit { kind: Kind::Block, part: 0, span: 0..0, parent: None, tag: String::new(), style: String::new(), direct: Direct::default(), marks: vec![], lists: vec![], content_start: body_start, empty: false, columns: vec![] });
 
         // CSS: the page, then every paragraph and text style with its parents resolved.
         let mut css = format!(
@@ -516,7 +520,7 @@ impl Ctx<'_> {
     fn unit(&mut self, kind: Kind, node: &Node, parent: Option<usize>) -> usize {
         let start = start_tag_end(self.xml, node.span.start);
         let empty = self.xml[node.span.start..start].ends_with("/>");
-        self.out.units.push(Unit { kind, part: self.part, span: node.span.clone(), parent, tag: String::new(), style: String::new(), direct: Direct::default(), marks: vec![], lists: vec![], content_start: start, empty });
+        self.out.units.push(Unit { kind, part: self.part, span: node.span.clone(), parent, tag: String::new(), style: String::new(), direct: Direct::default(), marks: vec![], lists: vec![], content_start: start, empty, columns: vec![] });
         self.out.units.len() - 1
     }
 
@@ -576,6 +580,7 @@ impl Ctx<'_> {
             });
             let n: usize = col.attr("number-columns-repeated").and_then(|v| v.parse().ok()).unwrap_or(1).min(1024);
             widths.extend(std::iter::repeat_n(w, n));
+            self.out.units[t].columns.push((col.span.clone(), n));
         }
         let bordered = tbl.find("table-cell").and_then(|c| c.attr("style-name")).and_then(|s| self.styles.defs.get(&("table-cell".to_owned(), s.to_owned()))).is_some_and(|s| s.raw.contains("fo:border") && !s.raw.contains("fo:border=\"none\""));
         let _ = write!(html, "<table class=\"dx-table{}\" data-u=\"{t}\"><tbody>", if bordered { " is-bordered" } else { "" });
@@ -951,6 +956,15 @@ impl Session {
                 }
             }
         }
+        let mut cuts: Vec<(usize, usize)> = vec![];
+        for rc in &edits.removed_cells {
+            if rc.cell < self.body() && self.units[rc.cell].kind == Kind::Cell && missing(rc.cell) {
+                deleted.insert(rc.cell);
+                if let Some(t) = ancestors(rc.cell).find(|&a| self.units[a].kind == Kind::Table) {
+                    cuts.push((t, rc.column));
+                }
+            }
+        }
         let gone = |u: usize| deleted.contains(&u) || ancestors(u).any(|a| deleted.contains(&a));
         for &u in &deleted {
             if !ancestors(u).any(|a| deleted.contains(&a)) {
@@ -998,6 +1012,8 @@ impl Session {
             self.put(&mut out, after, container, t.order, xml);
             *written_in.entry(container).or_default() += 1;
         }
+        self.table_changes(edits, &cuts, &gone, &mut out)?;
+        self.new_margins(edits, &mut out)?;
         // A cell must keep a paragraph.
         for (c, unit) in self.units.iter().enumerate() {
             if unit.kind != Kind::Cell || gone(c) || written_in.contains_key(&c) {
@@ -1066,6 +1082,7 @@ impl Session {
             }
         }
         if changed.is_empty() && out.media.is_empty() {
+            // (A new header or footer changes styles.xml: never empty.)
             return Ok(self.file.clone());
         }
         self.package(changed, &out)
@@ -1326,6 +1343,143 @@ impl Session {
         })
     }
 
+    fn children_of(&self, u: usize, kind: Kind) -> Vec<usize> {
+        (0..self.body()).filter(|&c| self.units[c].kind == kind && self.units[c].parent == Some(u)).collect()
+    }
+
+    /// A new cell: the template's start tag without its spanning, and its paragraphs.
+    fn cell_xml(&self, template: Option<usize>, paras: &[EditPara], out: &mut Out) -> Result<String, DocError> {
+        let tag = template
+            .map(|t| {
+                let u = &self.units[t];
+                let raw = &self.xml[u.span.start..start_tag_end(&self.xml, u.span.start)];
+                let raw = if raw.ends_with("/>") { format!("{}>", raw.trim_end_matches("/>").trim_end()) } else { raw.to_owned() };
+                retag(&raw, &[("table:number-columns-spanned", None), ("table:number-rows-spanned", None), ("office:value", None), ("calcext:value-type", None)])
+            })
+            .unwrap_or_else(|| "<table:table-cell office:value-type=\"string\">".to_owned());
+        let mut xml = tag;
+        for p in paras {
+            xml.push_str(&self.paragraph_xml(p, None, None, out)?);
+        }
+        if paras.is_empty() {
+            xml.push_str("<text:p/>");
+        }
+        xml.push_str("</table:table-cell>");
+        Ok(xml)
+    }
+
+    /// Rows and cells added to the file's tables; the column list kept in step.
+    fn table_changes(&self, edits: &Edits, cuts: &[(usize, usize)], gone: &dyn Fn(usize) -> bool, out: &mut Out) -> Result<(), DocError> {
+        let valid = |u: usize, kind: Kind| u < self.body() && self.units[u].kind == kind && !gone(u);
+        for r in &edits.rows {
+            if !valid(r.table, Kind::Table) {
+                continue;
+            }
+            let rows: Vec<usize> = (0..self.body()).filter(|&x| self.units[x].kind == Kind::Row && self.units[x].parent == Some(r.table)).collect();
+            let Some(template) = Some(r.template).filter(|t| rows.contains(t)).or_else(|| rows.first().copied()) else { continue };
+            out.part = self.units[r.table].part;
+            let tu = &self.units[template];
+            let mut xml = self.xml[tu.span.start..start_tag_end(&self.xml, tu.span.start)].to_owned();
+            let tcells = self.children_of(template, Kind::Cell);
+            for (i, paras) in r.cells.iter().enumerate() {
+                xml.push_str(&self.cell_xml(tcells.get(i).or(tcells.last()).copied(), paras, out)?);
+            }
+            xml.push_str("</table:table-row>");
+            let at = r.after.filter(|a| rows.contains(a)).map(|a| self.units[a].span.end).unwrap_or(tu.span.start);
+            out.insert(at, r.order, xml);
+        }
+        // Net columns added (+) or taken out (−), per column entry of each table.
+        let mut delta: HashMap<(usize, usize), i64> = HashMap::new();
+        let entry = |t: usize, col: usize| {
+            let mut covered = 0;
+            for (i, (_, n)) in self.units[t].columns.iter().enumerate() {
+                covered += n;
+                if col < covered {
+                    return Some(i);
+                }
+            }
+            self.units[t].columns.len().checked_sub(1)
+        };
+        let mut grown = HashSet::new();
+        for c in &edits.cells {
+            if !valid(c.row, Kind::Row) {
+                continue;
+            }
+            let table = std::iter::successors(self.units[c.row].parent, |&p| self.units[p].parent).find(|&a| self.units[a].kind == Kind::Table);
+            let cells = self.children_of(c.row, Kind::Cell);
+            let template = Some(c.template).filter(|&t| t < self.body() && self.units[t].kind == Kind::Cell).or_else(|| cells.first().copied());
+            out.part = self.units[c.row].part;
+            let xml = self.cell_xml(template, &c.paras, out)?;
+            let at = match c.after.filter(|a| cells.contains(a)) {
+                Some(a) => self.units[a].span.end,
+                None => cells.first().map(|&f| self.units[f].span.start).unwrap_or(self.units[c.row].content_start),
+            };
+            out.insert(at, c.order, xml);
+            if let Some(t) = table {
+                if grown.insert((t, c.column)) {
+                    if let Some(i) = entry(t, c.column) {
+                        *delta.entry((t, i)).or_default() += 1;
+                    }
+                }
+            }
+        }
+        let mut cut = HashSet::new();
+        for &(t, col) in cuts {
+            if cut.insert((t, col)) {
+                if let Some(i) = entry(t, col) {
+                    *delta.entry((t, i)).or_default() -= 1;
+                }
+            }
+        }
+        for ((t, i), d) in delta {
+            let (span, n) = &self.units[t].columns[i];
+            let left = *n as i64 + d;
+            let raw = &self.xml[span.clone()];
+            let text = if left <= 0 { String::new() } else { retag(raw, &[("table:number-columns-repeated", (left > 1).then(|| left.to_string()))]) };
+            out.edit(span.clone(), text);
+        }
+        Ok(())
+    }
+
+    /// A header or footer made where the file had none: in the first master page (styles.xml).
+    fn new_margins(&self, edits: &Edits, out: &mut Out) -> Result<(), DocError> {
+        let Some(master) = &self.master else { return Ok(()) };
+        let mut header = String::new();
+        let mut footer = String::new();
+        for (kind, paras, exists) in [("header", &edits.new_header, self.view.header.is_some()), ("footer", &edits.new_footer, self.view.footer.is_some())] {
+            let Some(paras) = paras.as_ref().filter(|p| !p.is_empty() && !exists) else { continue };
+            out.part = 1;
+            let mut xml = format!("<style:{kind}>");
+            for p in paras {
+                xml.push_str(&self.paragraph_xml(p, None, None, out)?);
+            }
+            let _ = write!(xml, "</style:{kind}>");
+            if kind == "header" {
+                header = xml;
+            } else {
+                footer = xml;
+            }
+        }
+        if header.is_empty() && footer.is_empty() {
+            return Ok(());
+        }
+        let raw = &self.xml[master.clone()];
+        let open_end = start_tag_end(&self.xml, master.start);
+        if raw.ends_with("/>") && open_end == master.end {
+            let open = format!("{}>", raw.trim_end_matches("/>").trim_end());
+            out.edit(master.clone(), format!("{open}{header}{footer}</style:master-page>"));
+        } else {
+            // The header first in the master page, the footer last (after any header-left/first).
+            if !header.is_empty() {
+                out.insert(open_end, 0, header);
+            }
+            if !footer.is_empty() {
+                out.insert(master.end - "</style:master-page>".len(), 0, footer);
+            }
+        }
+        Ok(())
+    }
+
     fn table_xml(&self, t: &EditTable, out: &mut Out) -> Result<String, DocError> {
         let cols = t.rows.iter().map(Vec::len).max().unwrap_or(0).clamp(1, 63);
         let cell = self.auto_style(out, "JCell", "<style:style style:name=\"\u{0}NAME\u{0}\" style:family=\"table-cell\"><style:table-cell-properties fo:padding=\"0.1cm\" fo:border=\"0.5pt solid #000000\"/></style:style>".into());
@@ -1519,6 +1673,7 @@ impl Editable for Session {
 
 #[cfg(test)]
 mod tests {
+    use super::super::edit::{EditCell, EditRow};
     use super::*;
 
     const CONTENT: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -1569,7 +1724,7 @@ mod tests {
     }
 
     fn save(s: &Session, paras: Vec<EditPara>) -> Vec<u8> {
-        s.save(&Edits { present: all(s), paras, tables: vec![] }, &[]).unwrap()
+        s.save(&Edits { present: all(s), paras, ..Default::default() }, &[]).unwrap()
     }
 
     #[test]
@@ -1678,7 +1833,7 @@ mod tests {
             p
         }];
         let table = EditTable { order: 2, after: Some(last), container: None, cols: vec![], rows: vec![vec![cell("a"), cell("b")]] };
-        let saved = s.save(&Edits { present: all(&s), paras: vec![h, into, l], tables: vec![table] }, &[img]).unwrap();
+        let saved = s.save(&Edits { present: all(&s), paras: vec![h, into, l], tables: vec![table], ..Default::default() }, &[img]).unwrap();
         let st = entry(&saved, "styles.xml");
         assert!(st.contains("<style:header><text:p text:style-name=\"Standard\">Company Ltd.</text:p></style:header>"), "{st}");
         let c = entry(&saved, "content.xml");
@@ -1696,6 +1851,41 @@ mod tests {
         drop(first);
         let doc = crate::doc::odt::read(&saved).unwrap();
         assert_eq!(doc.images.len(), 1);
+    }
+
+    #[test]
+    fn rows_columns_and_a_new_footer() {
+        let bytes = sample();
+        let s = open(&bytes);
+        let table = (0..s.body()).find(|&u| s.units[u].kind == Kind::Table).unwrap();
+        let row = s.children_of(table, Kind::Row)[0];
+        let cells = s.children_of(row, Kind::Cell);
+        let para = |t: &str| {
+            let mut p = edit(para(&s, ">last<"), &s, vec![text(t, None)]);
+            p.u = None;
+            p
+        };
+        let new_row = EditRow { order: 1, table, after: Some(row), template: row, cells: vec![vec![para("r2c1")], vec![], vec![para("r2c3")]] };
+        let new_cell = EditCell { order: 2, row, after: Some(cells[1]), template: cells[1], column: 2, paras: vec![para("r1c3")] };
+        let saved = s.save(&Edits { present: all(&s), rows: vec![new_row], cells: vec![new_cell], new_footer: Some(vec![para("Page footer")]), ..Default::default() }, &[]).unwrap();
+        let c = entry(&saved, "content.xml");
+        check_namespaces(&c).unwrap();
+        assert!(c.contains("<table:table-column table:number-columns-repeated=\"3\"/>"), "{c}");
+        assert!(c.contains("<table:table-cell/><table:table-cell><text:p text:style-name=\"Standard\">r1c3</text:p></table:table-cell></table:table-row><table:table-row><table:table-cell office:value-type=\"string\"><text:p text:style-name=\"Standard\">r2c1</text:p></table:table-cell><table:table-cell><text:p/></table:table-cell>"), "{c}");
+        let st = entry(&saved, "styles.xml");
+        assert!(st.contains("</style:header><style:footer><text:p text:style-name=\"Standard\">Page footer</text:p></style:footer></style:master-page>"), "{st}");
+        let again = open(&saved);
+        assert!(again.view.footer.as_ref().unwrap().html.contains("Page footer"));
+        let doc = crate::doc::odt::read(&saved).unwrap();
+        assert!(crate::doc::text::write(&doc).contains("r1c3"));
+        // A column taken out again: one fewer in the column list.
+        let t2 = (0..again.body()).find(|&u| again.units[u].kind == Kind::Table).unwrap();
+        let gone: Vec<usize> = again.children_of(t2, Kind::Row).iter().map(|&r| again.children_of(r, Kind::Cell)[2]).collect();
+        let present: Vec<usize> = all(&again).into_iter().filter(|u| !gone.contains(u) && !gone.iter().any(|g| again.units[*u].parent == Some(*g))).collect();
+        let removed = gone.iter().map(|&cell| super::super::edit::RemovedCell { cell, column: 2 }).collect();
+        let back = again.save(&Edits { present, removed_cells: removed, ..Default::default() }, &[]).unwrap();
+        let c2 = entry(&back, "content.xml");
+        assert!(c2.contains("<table:table-column table:number-columns-repeated=\"2\"/>") && !c2.contains("r1c3") && !c2.contains("r2c3"), "{c2}");
     }
 
     #[test]

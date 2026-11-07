@@ -8,6 +8,7 @@
   "permissions": [
     "core:default",
     "core:window:allow-set-theme",
+    "core:window:allow-set-icon",
     "core:window:allow-destroy"
   ]
 }

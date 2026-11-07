@@ -52,5 +52,11 @@ export const icons = {
   note: svg('<path d="M4 4h16v12l-4 4H4z"/><path d="M16 20v-4h4M8 9h8M8 13h5"/>'),
   textTool: svg('<path d="M4 7V5h16v2M12 5v14M9 19h6"/>'),
   eraser: svg('<path d="m7 21-4-4 10-10 7 7-7 7z"/><path d="M14 21h7M6 13l7 7"/>'),
+  rowAbove: svg('<rect x="3" y="10" width="18" height="11" rx="2"/><path d="M3 15.5h18M12 2v6M9 5h6"/>'),
+  rowBelow: svg('<rect x="3" y="3" width="18" height="11" rx="2"/><path d="M3 8.5h18M12 16v6M9 19h6"/>'),
+  colLeft: svg('<rect x="10" y="3" width="11" height="18" rx="2"/><path d="M15.5 3v18M2 12h6M5 9v6"/>'),
+  colRight: svg('<rect x="3" y="3" width="11" height="18" rx="2"/><path d="M8.5 3v18M16 12h6M19 9v6"/>'),
+  rowDelete: svg('<rect x="3" y="7" width="18" height="10" rx="2"/><path d="m9 10 6 4m0-4-6 4"/>'),
+  colDelete: svg('<rect x="7" y="3" width="10" height="18" rx="2"/><path d="m10 9 4 6m0-6-4 6"/>'),
   lineSpacing: svg('<path d="M11 6h10M11 12h10M11 18h10M3 8l3-3 3 3M3 16l3 3 3-3M6 5v14"/>'),
 };

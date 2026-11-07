@@ -498,6 +498,8 @@ struct Unit {
     has_sect: bool,
     /// Cells and the body: where a first paragraph goes.
     content_start: usize,
+    /// Tables: their `w:gridCol`s.
+    grid: Vec<Range<usize>>,
 }
 
 /// What a paragraph says itself, as strings ("" = nothing), compared on save.
@@ -585,6 +587,9 @@ pub struct Session {
     rels: HashMap<String, String>,
     /// Whether document.xml declares the `r:` prefix new hyperlinks use.
     has_r_ns: bool,
+    /// The body's last section (where a new header's reference goes), and where the body ends.
+    body_sect: Option<Range<usize>>,
+    body_end: usize,
     pub images: Vec<Image>,
     pub view: View,
 }
@@ -689,7 +694,9 @@ impl Session {
             footer: None,
         };
         let has_r_ns = tag.contains(&format!("xmlns:r=\"{R_NS}\""));
-        let out = Session { file: bytes.to_vec(), xml: String::new(), parts, units: vec![], atoms: vec![], runs: vec![], links: vec![], rels: rels.clone(), has_r_ns, images: vec![], view };
+        let body_sect = body.child("sectPr").map(|s| s.span.clone());
+        let body_end = body.span.end - "</w:body>".len();
+        let out = Session { file: bytes.to_vec(), xml: String::new(), parts, units: vec![], atoms: vec![], runs: vec![], links: vec![], rels: rels.clone(), has_r_ns, body_sect, body_end, images: vec![], view };
         let mut ctx = Ctx { xml: &all, part: 0, styles: &styles, theme: &theme, numbering: &numbering, rels: &rels, zip, image_index: HashMap::new(), img_url, fonts: HashSet::new(), out };
 
         let mut html = String::new();
@@ -724,6 +731,7 @@ impl Session {
             fields_balanced: true,
             has_sect: false,
             content_start: body_start,
+            grid: vec![],
         });
 
         // The page: size and margins from the last section.
@@ -844,6 +852,7 @@ impl Ctx<'_> {
             fields_balanced: true,
             has_sect: false,
             content_start: node.child("tcPr").map(|p| p.span.end).unwrap_or(start),
+            grid: node.child("tblGrid").map(|g| g.nodes().filter(|c| c.name == "gridCol").map(|c| c.span.clone()).collect()).unwrap_or_default(),
         });
         self.out.units.len() - 1
     }
@@ -1264,13 +1273,57 @@ pub fn open_editor(bytes: &[u8], img_url: &dyn Fn(usize) -> String) -> Result<Bo
 }
 
 /// The page's changes: every unit still on it, and each paragraph that changed or is new.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct Edits {
     pub present: Vec<usize>,
     pub paras: Vec<EditPara>,
     /// Tables made on the page.
     #[serde(default)]
     pub tables: Vec<EditTable>,
+    /// Rows and cells added to the file's tables, and cells taken out with their column.
+    #[serde(default)]
+    pub rows: Vec<EditRow>,
+    #[serde(default)]
+    pub cells: Vec<EditCell>,
+    #[serde(default)]
+    pub removed_cells: Vec<RemovedCell>,
+    /// A header or footer made where the file had none.
+    #[serde(default)]
+    pub new_header: Option<Vec<EditPara>>,
+    #[serde(default)]
+    pub new_footer: Option<Vec<EditPara>>,
+}
+
+/// A row added to a table of the file: after `after` (or before `template`), its cells shaped like
+/// `template`'s.
+#[derive(Debug, Deserialize)]
+pub struct EditRow {
+    #[serde(default)]
+    pub order: usize,
+    pub table: usize,
+    pub after: Option<usize>,
+    pub template: usize,
+    pub cells: Vec<Vec<EditPara>>,
+}
+
+/// A cell added to a row of the file (a new column): after `after` (or first), shaped like
+/// `template`, at grid column `column`.
+#[derive(Debug, Deserialize)]
+pub struct EditCell {
+    #[serde(default)]
+    pub order: usize,
+    pub row: usize,
+    pub after: Option<usize>,
+    pub template: usize,
+    pub column: usize,
+    pub paras: Vec<EditPara>,
+}
+
+/// A cell deleted with its column (`column` in the grid).
+#[derive(Debug, Deserialize)]
+pub struct RemovedCell {
+    pub cell: usize,
+    pub column: usize,
 }
 
 /// A table made on the page: where it goes (as for a new paragraph), its column widths (points) and
@@ -1483,6 +1536,8 @@ struct Out<'a> {
     /// Writing into document.xml (not a header or footer, whose links and pictures live in their
     /// own relationships: new ones aren't made there).
     main: bool,
+    /// Headers and footers made here: (part name, XML, relationship id, "header" | "footer").
+    new_parts: Vec<(String, String, String, &'static str)>,
     /// Relationships added (id, target), lists created (kind → numId).
     new_rels: Vec<(String, String)>,
     new_lists: Vec<(bool, String)>,
@@ -1505,7 +1560,7 @@ impl Session {
     pub fn save(&self, edits: &Edits, images: &[NewImage]) -> Result<Vec<u8>, DocError> {
         let present: HashSet<usize> = edits.present.iter().copied().filter(|&u| u < self.units.len()).collect();
         let next_drawing = self.xml.match_indices("docPr id=\"").filter_map(|(i, m)| self.xml[i + m.len()..].split('"').next()?.parse::<u32>().ok()).max().unwrap_or(0);
-        let mut out = Out { edits: vec![], seq: 0, new_rels: vec![], new_lists: vec![], images, media: vec![], next_drawing, main: true };
+        let mut out = Out { edits: vec![], seq: 0, new_rels: vec![], new_lists: vec![], images, media: vec![], next_drawing, main: true, new_parts: vec![] };
         let mut numbering_xml = None::<String>;
         let mut next_ids = None::<(u32, u32)>;
 
@@ -1522,6 +1577,16 @@ impl Session {
                 continue;
             }
             deleted.insert(u);
+        }
+        // Cells taken out with their column go too (other missing cells stay: the page lost them).
+        let mut grid_cuts: HashSet<(usize, usize)> = HashSet::new();
+        for rc in &edits.removed_cells {
+            if rc.cell < self.body() && self.units[rc.cell].kind == Kind::Cell && missing(rc.cell) {
+                deleted.insert(rc.cell);
+                if let Some(t) = ancestors(rc.cell).find(|&a| self.units[a].kind == Kind::Table) {
+                    grid_cuts.insert((t, rc.column));
+                }
+            }
         }
         // A table with no rows left goes whole.
         for (t, unit) in self.units.iter().enumerate() {
@@ -1580,6 +1645,8 @@ impl Session {
             out.insert(at, t.order, xml);
             *written_in.entry(container).or_default() += 1;
         }
+        self.table_changes(edits, &grid_cuts, &gone, &mut out, &mut numbering_xml, &mut next_ids)?;
+        self.new_margins(edits, &mut out, &mut numbering_xml, &mut next_ids)?;
         // A cell must keep a paragraph.
         for (c, unit) in self.units.iter().enumerate() {
             if !matches!(unit.kind, Kind::Cell | Kind::Root) || gone(c) || written_in.contains_key(&c) {
@@ -1614,10 +1681,123 @@ impl Session {
                 changed_parts.push((name.clone(), xml));
             }
         }
-        if changed_parts.is_empty() && out.new_rels.is_empty() && numbering_xml.is_none() && out.media.is_empty() {
+        if changed_parts.is_empty() && out.new_rels.is_empty() && numbering_xml.is_none() && out.media.is_empty() && out.new_parts.is_empty() {
             return Ok(self.file.clone());
         }
         self.package(changed_parts, &out, numbering_xml)
+    }
+
+    /// A child element's XML inside a unit (`w:trPr` of a row, `w:tcPr` of a cell), or "".
+    fn child_raw(&self, u: usize, name: &str) -> String {
+        let raw = &self.xml[self.units[u].span.clone()];
+        xml::parse(raw.as_bytes()).ok().and_then(|n| n.child(name).map(|c| raw[c.span.clone()].to_owned())).unwrap_or_default()
+    }
+
+    fn children_of(&self, u: usize, kind: Kind) -> Vec<usize> {
+        (0..self.body()).filter(|&c| self.units[c].kind == kind && self.units[c].parent == Some(u)).collect()
+    }
+
+    /// A new cell's properties: the template's, without its merging.
+    fn new_tcpr(&self, template: Option<usize>) -> String {
+        let raw = template.map(|t| self.child_raw(t, "tcPr")).unwrap_or_default();
+        let mut props = Props::parse(&raw);
+        for k in ["gridSpan", "hMerge", "vMerge"] {
+            props.set(k, None);
+        }
+        props.write("tcPr", &["cnfStyle", "tcW", "gridSpan", "hMerge", "vMerge", "tcBorders", "shd", "noWrap", "tcMar", "textDirection", "tcFitText", "vAlign", "hideMark"])
+    }
+
+    fn cell_xml(&self, template: Option<usize>, paras: &[EditPara], out: &mut Out, numbering: &mut Option<String>, next_ids: &mut Option<(u32, u32)>) -> Result<String, DocError> {
+        let mut xml = format!("<w:tc>{}", self.new_tcpr(template));
+        for p in paras {
+            xml.push_str(&self.paragraph_xml(p, None, None, out, numbering, next_ids)?);
+        }
+        if paras.is_empty() {
+            xml.push_str("<w:p/>");
+        }
+        xml.push_str("</w:tc>");
+        Ok(xml)
+    }
+
+    /// Rows and cells added to the file's tables, and the grid kept in step with the columns.
+    fn table_changes(&self, edits: &Edits, cuts: &HashSet<(usize, usize)>, gone: &dyn Fn(usize) -> bool, out: &mut Out, numbering: &mut Option<String>, next_ids: &mut Option<(u32, u32)>) -> Result<(), DocError> {
+        let valid = |u: usize, kind: Kind| u < self.body() && self.units[u].kind == kind && !gone(u);
+        for r in &edits.rows {
+            if !valid(r.table, Kind::Table) {
+                continue;
+            }
+            let rows = self.children_of(r.table, Kind::Row);
+            let Some(template) = Some(r.template).filter(|t| rows.contains(t)).or_else(|| rows.first().copied()) else { continue };
+            out.main = self.units[r.table].part == 0;
+            let tcells = self.children_of(template, Kind::Cell);
+            let mut xml = format!("<w:tr>{}", self.child_raw(template, "trPr"));
+            for (i, paras) in r.cells.iter().enumerate() {
+                xml.push_str(&self.cell_xml(tcells.get(i).or(tcells.last()).copied(), paras, out, numbering, next_ids)?);
+            }
+            xml.push_str("</w:tr>");
+            let at = r.after.filter(|a| rows.contains(a)).map(|a| self.units[a].span.end).unwrap_or(self.units[template].span.start);
+            out.insert(at, r.order, xml);
+        }
+        let mut grows: HashSet<(usize, usize)> = HashSet::new();
+        for c in &edits.cells {
+            if !valid(c.row, Kind::Row) {
+                continue;
+            }
+            let Some(table) = self.units[c.row].parent else { continue };
+            let cells = self.children_of(c.row, Kind::Cell);
+            let template = Some(c.template).filter(|&t| t < self.body() && self.units[t].kind == Kind::Cell).or_else(|| cells.first().copied());
+            out.main = self.units[table].part == 0;
+            let xml = self.cell_xml(template, &c.paras, out, numbering, next_ids)?;
+            let at = match c.after.filter(|a| cells.contains(a)) {
+                Some(a) => self.units[a].span.end,
+                None => cells.first().map(|&f| self.units[f].span.start).unwrap_or(self.units[c.row].content_start),
+            };
+            out.insert(at, c.order, xml);
+            grows.insert((table, c.column));
+        }
+        // One grid column per new column, a copy of its neighbor's; one less per column taken out.
+        for &(t, col) in &grows {
+            let grid = &self.units[t].grid;
+            if let Some(last) = grid.len().checked_sub(1) {
+                let copy = self.xml[grid[col.min(last)].clone()].to_owned();
+                let at = if col <= last { grid[col].start } else { grid[last].end };
+                out.insert(at, 0, copy);
+            }
+        }
+        for &(t, col) in cuts {
+            if let Some(g) = self.units[t].grid.get(col) {
+                out.edit(g.clone(), String::new());
+            }
+        }
+        Ok(())
+    }
+
+    /// A header or footer made where the file had none: its own part, related and referenced from
+    /// the last section.
+    fn new_margins(&self, edits: &Edits, out: &mut Out, numbering: &mut Option<String>, next_ids: &mut Option<(u32, u32)>) -> Result<(), DocError> {
+        let mut names: HashSet<String> = zip::ZipArchive::new(Cursor::new(self.file.as_slice())).map_err(|e| invalid(e.to_string()))?.file_names().flatten().map(|n| n.into_owned()).collect();
+        for (kind, paras, exists) in [("header", &edits.new_header, self.view.header.is_some()), ("footer", &edits.new_footer, self.view.footer.is_some())] {
+            let Some(paras) = paras.as_ref().filter(|p| !p.is_empty() && !exists) else { continue };
+            out.main = false;
+            let tag = if kind == "header" { "hdr" } else { "ftr" };
+            let mut xml = format!("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:{tag} xmlns:w=\"{W_NS}\" xmlns:r=\"{R_NS}\">");
+            for p in paras {
+                xml.push_str(&self.paragraph_xml(p, None, None, out, numbering, next_ids)?);
+            }
+            let _ = write!(xml, "</w:{tag}>");
+            let name = (1..).map(|n| format!("word/{kind}{n}.xml")).find(|n| !names.contains(n)).unwrap_or_default();
+            names.insert(name.clone());
+            let rid = (1..).map(|n| format!("rIdJayE{kind}{n}")).find(|id| !self.rels.contains_key(id)).unwrap_or_default();
+            let ns = if self.has_r_ns { String::new() } else { format!(" xmlns:r=\"{R_NS}\"") };
+            let reference = format!("<w:{kind}Reference{ns} w:type=\"default\" r:id=\"{rid}\"/>");
+            match &self.body_sect {
+                Some(sect) if self.xml[sect.clone()].ends_with("/>") => out.edit(sect.clone(), format!("<w:sectPr>{reference}</w:sectPr>")),
+                Some(sect) => out.insert(start_tag_end(&self.xml, sect.start), 0, reference),
+                None => out.insert(self.body_end, usize::MAX, format!("<w:sectPr>{reference}</w:sectPr>")),
+            }
+            out.new_parts.push((name, xml, rid, kind));
+        }
+        Ok(())
     }
 
     /// Where something new goes: after a unit of the same container, or first in it.
@@ -1968,6 +2148,12 @@ impl Session {
                 let _ = write!(types_add, "<Default Extension=\"{ext}\" ContentType=\"{mime}\"/>");
             }
         }
+        for (name, xml, rid, kind) in &out.new_parts {
+            let target = name.trim_start_matches("word/");
+            let _ = write!(rel_add, "<Relationship Id=\"{rid}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/{kind}\" Target=\"{target}\"/>");
+            let _ = write!(types_add, "<Override PartName=\"/{name}\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.{kind}+xml\"/>");
+            replaced.insert(name.clone(), xml.clone().into_bytes());
+        }
         for (id, target) in &out.new_rels {
             let _ = write!(rel_add, "<Relationship Id=\"{id}\" Type=\"{HYPERLINK_REL}\" Target=\"{}\" TargetMode=\"External\"/>", esc(target));
         }
@@ -2085,6 +2271,10 @@ mod tests {
         (0..s.units.len()).collect()
     }
 
+    fn edits(s: &Session, paras: Vec<EditPara>) -> Edits {
+        Edits { present: all_units(s), paras, tables: vec![], rows: vec![], cells: vec![], removed_cells: vec![], new_header: None, new_footer: None }
+    }
+
     fn para(s: &Session, text: &str) -> usize {
         (0..s.body()).find(|&u| s.units[u].kind == Kind::Para && s.xml[s.units[u].span.clone()].contains(text)).unwrap()
     }
@@ -2104,7 +2294,7 @@ mod tests {
         let s = open(&bytes);
         assert!(s.view.html.contains("Title") && s.view.html.contains("<table"));
         assert!(s.view.css.contains(".dx-page{width:453.6pt;min-height:700.2pt;padding:70.85pt"), "{}", s.view.css);
-        let saved = s.save(&Edits { present: all_units(&s), paras: vec![], tables: vec![] }, &[]).unwrap();
+        let saved = s.save(&edits(&s, vec![]), &[]).unwrap();
         assert_eq!(saved, bytes);
     }
 
@@ -2115,7 +2305,7 @@ mod tests {
         let p = para(&s, "Plain");
         let set = Set { bold: Some(true), color: Some("ff0000".into()), font: Some("Arial".into()), size: Some(14.0), ..Default::default() };
         let items = vec![text("New text ", Some(0)), Item::Text { text: "red\tbold".into(), r: None, set: Some(set) }];
-        let saved = s.save(&Edits { present: all_units(&s), paras: vec![edit(Some(p), &s, items)], tables: vec![] }, &[]).unwrap();
+        let saved = s.save(&edits(&s, vec![edit(Some(p), &s, items)]), &[]).unwrap();
         let before = entry(&bytes, "word/document.xml");
         let after = entry(&saved, "word/document.xml");
         assert!(after.contains("New text ") && !after.contains("Plain, "));
@@ -2147,7 +2337,7 @@ mod tests {
         new.u = None;
         new.base = Some(last);
         new.after = Some(last);
-        let saved = s.save(&Edits { present, paras: vec![new], tables: vec![] }, &[]).unwrap();
+        let saved = s.save(&Edits { present, ..edits(&s, vec![new]) }, &[]).unwrap();
         let after = entry(&saved, "word/document.xml");
         assert!(!after.contains(">Title<") && !after.contains(">cell<"));
         assert!(after.find("last").unwrap() < after.find("after last").unwrap());
@@ -2166,7 +2356,7 @@ mod tests {
         e.num = "new-number:0".into();
         e.align = "right".into();
         e.line = "360".into();
-        let saved = s.save(&Edits { present: all_units(&s), paras: vec![e], tables: vec![] }, &[]).unwrap();
+        let saved = s.save(&edits(&s, vec![e]), &[]).unwrap();
         let after = entry(&saved, "word/document.xml");
         assert!(after.contains("<w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"2\"/></w:numPr><w:spacing w:line=\"360\" w:lineRule=\"auto\"/><w:jc w:val=\"right\"/>"), "{after}");
         let numbering = entry(&saved, "word/numbering.xml");
@@ -2181,7 +2371,7 @@ mod tests {
         let s = open(&bytes);
         let p = para(&s, "Plain");
         let items = vec![text("Plain, ", Some(1)), Item::Text { text: "bold".into(), r: Some(2), set: Some(Set::default()) }];
-        let saved = s.save(&Edits { present: all_units(&s), paras: vec![edit(Some(p), &s, items)], tables: vec![] }, &[]).unwrap();
+        let saved = s.save(&edits(&s, vec![edit(Some(p), &s, items)]), &[]).unwrap();
         let after = entry(&saved, "word/document.xml");
         assert!(after.contains("<w:r><w:t xml:space=\"preserve\">bold</w:t></w:r>"), "{after}");
     }
@@ -2235,7 +2425,7 @@ mod tests {
             p
         }];
         let table = EditTable { order: 2, after: Some(last), container: None, cols: vec![], rows: vec![vec![cell("a"), cell("b")], vec![cell("c"), vec![]]] };
-        let saved = s.save(&Edits { present: all_units(&s), paras: vec![e], tables: vec![table] }, &[img]).unwrap();
+        let saved = s.save(&Edits { tables: vec![table], ..edits(&s, vec![e]) }, &[img]).unwrap();
         let after = entry(&saved, "word/document.xml");
         check_namespaces(&after).unwrap();
         assert!(after.contains("<a:blip r:embed=\"rIdJayEImg1\"/>") && after.contains("<wp:extent cx=\"609600\" cy=\"304800\"/>"), "{after}");
@@ -2288,14 +2478,65 @@ mod tests {
         assert_eq!(s.units[p].part, 1);
         let mut e = edit(Some(p), &s, vec![text("Company Ltd. ", None), Item::Link { href: "https://x.example".into(), h: None, items: vec![text("site", None)] }]);
         e.container = Some(header.u);
-        let saved = s.save(&Edits { present: all_units(&s), paras: vec![e], tables: vec![] }, &[]).unwrap();
+        let saved = s.save(&edits(&s, vec![e]), &[]).unwrap();
         let hdr = entry(&saved, "word/header1.xml");
         assert!(hdr.contains(">Company Ltd. </w:t>") && hdr.contains(">site</w:t>") && !hdr.contains("hyperlink"), "{hdr}");
         // document.xml and its relationships are as they were.
         assert_eq!(entry(&saved, "word/document.xml"), entry(&bytes, "word/document.xml"));
         assert_eq!(entry(&saved, "word/_rels/document.xml.rels"), entry(&bytes, "word/_rels/document.xml.rels"));
         // Saving with no edits is still the same file.
-        assert_eq!(s.save(&Edits { present: all_units(&s), paras: vec![], tables: vec![] }, &[]).unwrap(), bytes);
+        assert_eq!(s.save(&edits(&s, vec![]), &[]).unwrap(), bytes);
+    }
+
+    #[test]
+    fn rows_and_columns_in_a_table_of_the_file() {
+        let bytes = sample();
+        let s = open(&bytes);
+        let table = (0..s.body()).find(|&u| s.units[u].kind == Kind::Table).unwrap();
+        let row = s.children_of(table, Kind::Row)[0];
+        let cell = s.children_of(row, Kind::Cell)[0];
+        let para = |t: &str| {
+            let mut p = edit(None, &s, vec![text(t, None)]);
+            p.align = String::new();
+            p
+        };
+        // A row below, a column after the first cell.
+        let new_row = EditRow { order: 1, table, after: Some(row), template: row, cells: vec![vec![para("r2c1")], vec![para("r2c2")]] };
+        let new_cell = EditCell { order: 2, row, after: Some(cell), template: cell, column: 1, paras: vec![para("r1c2")] };
+        let saved = s.save(&Edits { rows: vec![new_row], cells: vec![new_cell], ..edits(&s, vec![]) }, &[]).unwrap();
+        let x = entry(&saved, "word/document.xml");
+        check_namespaces(&x).unwrap();
+        assert!(x.contains(">cell</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:tcW w:w=\"0\" w:type=\"auto\"/></w:tcPr><w:p><w:r><w:t xml:space=\"preserve\">r1c2</w:t>"), "{x}");
+        assert!(x.contains("</w:tr><w:tr><w:tc><w:tcPr><w:tcW w:w=\"0\" w:type=\"auto\"/></w:tcPr><w:p><w:r><w:t xml:space=\"preserve\">r2c1"), "{x}");
+        assert_eq!(x.matches("<w:gridCol w:w=\"9072\"/>").count(), 2, "the grid grew with the column: {x}");
+        let doc = crate::doc::docx::read(&saved).unwrap();
+        assert!(matches!(&doc.blocks[3], Block::Table { rows } if rows.len() == 2 && rows[0].len() == 2), "{:?}", doc.blocks[3]);
+        // Taking the new column out again (on the saved file): cell and grid column go.
+        let s2 = open(&saved);
+        let table2 = (0..s2.body()).find(|&u| s2.units[u].kind == Kind::Table).unwrap();
+        let row2 = s2.children_of(table2, Kind::Row)[0];
+        let second = s2.children_of(row2, Kind::Cell)[1];
+        let present: Vec<usize> = all_units(&s2).into_iter().filter(|&u| u != second && s2.units[u].parent != Some(second)).collect();
+        let back = s2.save(&Edits { present, removed_cells: vec![RemovedCell { cell: second, column: 1 }], ..edits(&s2, vec![]) }, &[]).unwrap();
+        let y = entry(&back, "word/document.xml");
+        assert!(!y.contains("r1c2") && y.contains("r2c2") && y.matches("<w:gridCol").count() == 1, "{y}");
+    }
+
+    #[test]
+    fn a_header_where_there_was_none() {
+        let bytes = sample();
+        let s = open(&bytes);
+        assert!(s.view.header.is_none());
+        let mut p = edit(None, &s, vec![text("New header", None)]);
+        p.align = String::new();
+        let saved = s.save(&Edits { new_header: Some(vec![p]), ..edits(&s, vec![]) }, &[]).unwrap();
+        let x = entry(&saved, "word/document.xml");
+        assert!(x.contains("<w:sectPr><w:headerReference w:type=\"default\" r:id=\"rIdJayEheader1\"/><w:pgSz"), "{x}");
+        assert!(entry(&saved, "word/header1.xml").contains(">New header</w:t>"));
+        assert!(entry(&saved, "word/_rels/document.xml.rels").contains("Id=\"rIdJayEheader1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/header\" Target=\"header1.xml\""));
+        assert!(entry(&saved, "[Content_Types].xml").contains("PartName=\"/word/header1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml\""));
+        let again = open(&saved);
+        assert!(again.view.header.unwrap().html.contains("New header"));
     }
 
     #[test]
@@ -2304,7 +2545,7 @@ mod tests {
         let s = open(&bytes);
         let p = para(&s, "last");
         let items = vec![Item::Link { href: "https://jay.example/".into(), h: None, items: vec![text("site", None)] }, Item::Link { href: "javascript:alert(1)".into(), h: None, items: vec![text(" no", None)] }];
-        let saved = s.save(&Edits { present: all_units(&s), paras: vec![edit(Some(p), &s, items)], tables: vec![] }, &[]).unwrap();
+        let saved = s.save(&edits(&s, vec![edit(Some(p), &s, items)]), &[]).unwrap();
         let after = entry(&saved, "word/document.xml");
         assert!(after.contains("<w:hyperlink r:id=\"rIdJayE1\" w:history=\"1\">") && !after.contains("javascript"), "{after}");
         assert!(entry(&saved, "word/_rels/document.xml.rels").contains("Id=\"rIdJayE1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink\" Target=\"https://jay.example/\""));
@@ -2317,7 +2558,7 @@ mod tests {
         let p = para(&s, "Plain");
         assert!(s.view.html.contains("data-h=\"0\""));
         let items = vec![text("Plain, ", Some(1)), text("bold", Some(2)), Item::Link { href: "https://example.com".into(), h: Some(0), items: vec![text("link", Some(4))] }];
-        let saved = s.save(&Edits { present: all_units(&s), paras: vec![edit(Some(p), &s, items)], tables: vec![] }, &[]).unwrap();
+        let saved = s.save(&edits(&s, vec![edit(Some(p), &s, items)]), &[]).unwrap();
         let after = entry(&saved, "word/document.xml");
         assert!(after.contains(&format!("{}<w:r><w:rPr><w:rStyle w:val=\"Hyperlink\"/></w:rPr><w:t xml:space=\"preserve\">link</w:t></w:r></w:hyperlink>", s.links[0].0)), "{after}");
         assert!(after.contains("<w:rPr><w:b/></w:rPr><w:t xml:space=\"preserve\">bold"));
