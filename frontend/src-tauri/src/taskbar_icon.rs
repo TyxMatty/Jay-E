@@ -28,8 +28,12 @@ use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, SHGetPropertyS
 use windows::Win32::UI::WindowsAndMessaging::{CreateIcon, DestroyIcon, HICON, ICON_BIG, SendMessageW, WM_SETICON};
 use windows::core::PWSTR;
 
-/// The window's own app ID: not the Start menu shortcut's (`io.github.tyxmatty.jaye`).
-const WINDOW_APP_ID: &str = "io.github.tyxmatty.jaye.window";
+/// The window's own app ID: not the Start menu shortcut's (`io.github.tyxmatty.jaye`). The taskbar
+/// remembers the icon it settled on for an ID: once a dev run left it on the .exe's icon (the .ico
+/// it was given couldn't be read), clearing and setting the ID never brought ours back, for any
+/// picture, in any folder (measured). So dev and the installed app have IDs of their own, both new
+/// ones: `….window` was used by those earlier runs.
+const WINDOW_APP_ID: &str = if cfg!(debug_assertions) { "io.github.tyxmatty.jaye.dev" } else { "io.github.tyxmatty.jaye.app" };
 
 /// Where Explorer can find a file this process wrote under `%LOCALAPPDATA%`: the same path, or
 /// a package's private copy of it when the write was redirected (see above).
@@ -48,11 +52,21 @@ pub fn set_taskbar_icon(window: tauri::WebviewWindow, rgba: Vec<u8>, size: u32) 
         return Err(format!("expected {size}x{size} RGBA pixels, got {} bytes", rgba.len()));
     }
     let hwnd = HWND(window.hwnd().map_err(|e| e.to_string())?.0);
-    // Named after its content, so a changed picture is never served from an icon cache.
+    // Named after its content, so a changed picture is never served from an icon cache. Dev builds
+    // get their own names (as in Jay-A), so a path Explorer once failed to find, and cached as
+    // failed, before `real_path` existed never belongs to the installed app; the "v2" leaves those
+    // cached failures of the old names behind.
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     rgba.hash(&mut hasher);
-    let dir = window.app_handle().path().app_local_data_dir().map_err(|e| e.to_string())?;
-    let ico_path = dir.join(format!("window-icon-{:016x}.ico", hasher.finish()));
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    // A dev build keeps its icons beside its .exe (the cargo target folder, outside AppData), where
+    // nothing redirects them; the installed app keeps them in its AppData folder.
+    let dir = match exe.parent() {
+        Some(dir) if cfg!(debug_assertions) => dir.join("taskbar-icons"),
+        _ => window.app_handle().path().app_local_data_dir().map_err(|e| e.to_string())?,
+    };
+    let kind = if cfg!(debug_assertions) { "dev" } else { "app" };
+    let ico_path = dir.join(format!("window-icon-v2-{kind}-{:016x}.ico", hasher.finish()));
     if !ico_path.exists() {
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         std::fs::write(&ico_path, ico(&rgba, size)).map_err(|e| e.to_string())?;
@@ -72,7 +86,6 @@ pub fn set_taskbar_icon(window: tauri::WebviewWindow, rgba: Vec<u8>, size: u32) 
             let _ = DestroyIcon(HICON(old.0 as _));
         }
     }
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let ico_path = real_path(&ico_path);
     relaunch_with_icon(hwnd, &exe, &ico_path).map_err(|e| format!("taskbar properties: {e}"))?;
     let raw = hwnd.0 as isize; // HWND isn't Send
