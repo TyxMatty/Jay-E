@@ -218,8 +218,20 @@ export async function createTextEditor(file) {
     );
     window.print();
   }
+  async function toDocx() {
+    try {
+      const where = await (await import('@tauri-apps/api/core')).invoke('markdown_export_docx', { path: file.path, text: view.state.doc.toString() });
+      if (where) showBanner(t('Saved as {path}', { path: where }), bannerButton(t('OK'), hideBanner, true));
+    } catch (error) {
+      showBanner(t("Couldn't export: {error}", { error: error?.message ?? error?.kind ?? String(error) }), bannerButton(t('OK'), hideBanner, true));
+    }
+  }
   const exportButtons = isMarkdown
-    ? [h('button', { type: 'button', class: 'btn btn-secondary', onClick: toHtml }, t('Export HTML')), h('button', { type: 'button', class: 'btn btn-secondary', onClick: toPdf }, t('Export PDF'))]
+    ? [
+        h('button', { type: 'button', class: 'btn btn-secondary', onClick: toHtml }, t('Export HTML')),
+        h('button', { type: 'button', class: 'btn btn-secondary', onClick: toDocx }, t('Export DOCX')),
+        h('button', { type: 'button', class: 'btn btn-secondary', onClick: toPdf }, t('Export PDF')),
+      ]
     : [];
 
   // ----- Saving -----

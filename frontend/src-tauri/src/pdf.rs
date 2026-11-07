@@ -105,6 +105,12 @@ pub fn response(status: StatusCode, body: Vec<u8>) -> Response<Vec<u8>> {
 pub fn protocol<R: Runtime>(ctx: UriSchemeContext<'_, R>, request: Request<Vec<u8>>, responder: UriSchemeResponder) {
     let reply = response;
     let path = request.uri().path();
+    if let Some(rest) = path.strip_prefix("/doc/") {
+        let app = ctx.app_handle().clone();
+        let parts: Vec<String> = rest.split('/').map(String::from).collect();
+        std::thread::spawn(move || responder.respond(crate::doc::respond(&app, &parts.iter().map(String::as_str).collect::<Vec<_>>())));
+        return;
+    }
     if let Some(rest) = path.strip_prefix("/img/") {
         let app = ctx.app_handle().clone();
         let parts: Vec<String> = rest.split('/').map(String::from).collect();

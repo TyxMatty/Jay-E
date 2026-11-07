@@ -154,7 +154,7 @@ const CP1252_HIGH: [char; 32] = [
     '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', '\u{9d}', 'ž', 'Ÿ',
 ];
 
-fn from_1252(b: u8) -> char {
+pub(crate) fn from_1252(b: u8) -> char {
     match b {
         0x80..=0x9f => CP1252_HIGH[(b - 0x80) as usize],
         _ => b as char, // the rest is Latin-1

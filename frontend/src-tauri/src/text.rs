@@ -65,6 +65,17 @@ pub async fn markdown_export_html(path: PathBuf, text: String, title: String, ap
     Ok(Some(target.to_string_lossy().into_owned()))
 }
 
+/// The Markdown being edited as a DOCX where the person picks (images in the Markdown are links to
+/// files, so they don't go in). `None` if the dialog was cancelled.
+#[tauri::command]
+pub async fn markdown_export_docx(path: PathBuf, text: String, app: AppHandle) -> Result<Option<String>, jay_docs::doc::DocError> {
+    if !app.state::<OpenedPaths>().contains(&path) {
+        return Err(jay_docs::doc::DocError::Io { message: "not an opened file".into() });
+    }
+    let document = jay_docs::doc::markdown::read(&text);
+    crate::doc::save_as(&app, &path, &document, "docx").await
+}
+
 /// `src` relative to the Markdown file, inside its folder, an image that exists.
 fn local_image(markdown: &Path, src: &str) -> Option<PathBuf> {
     if src.contains(':') || src.starts_with('/') || src.starts_with('\\') {
@@ -114,7 +125,7 @@ fn percent_decode(s: &str) -> String {
 }
 
 /// The exported page's look: readable, light, prints well. Kept short on purpose.
-const EXPORT_CSS: &str = "body{margin:0;background:#fff;color:#1f2328;font:16px/1.6 system-ui,-apple-system,'Segoe UI',sans-serif}\
+pub(crate) const EXPORT_CSS: &str = "body{margin:0;background:#fff;color:#1f2328;font:16px/1.6 system-ui,-apple-system,'Segoe UI',sans-serif}\
 .markdown{max-width:820px;margin:0 auto;padding:32px 24px}\
 h1,h2{border-bottom:1px solid #d1d9e0;padding-bottom:.3em}\
 code,pre{font-family:ui-monospace,'Cascadia Code',Consolas,monospace;font-size:.9em;background:#f6f8fa;border-radius:6px}\

@@ -1377,3 +1377,143 @@ fieldset > h3 {
 .img-progress li[data-state='failed'] .hint {
   color: var(--danger);
 }
+
+/* ---------- Documents (DOCX, ODT, RTF) ---------- */
+
+.doc-viewer {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.doc-status {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-export .input {
+  width: 130px;
+}
+
+.doc-stage {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  outline: none;
+  background: color-mix(in srgb, var(--surface-2) 70%, var(--bg));
+}
+
+/* An A4 sheet (21 cm at 96 dpi) with 2.5 cm margins; .doc-viewer scales it with `zoom`. */
+.doc-sheet {
+  width: 794px;
+  min-height: 1123px;
+  margin: 0 auto;
+  padding: 94px;
+  background: #fff;
+  color: #1f2328;
+  box-shadow: var(--shadow-sm);
+}
+
+/* The content keeps light colors on its white paper in every theme. */
+.doc-content {
+  --text: #1f2328;
+  --text-muted: #59636e;
+  --border: #c8ccd1;
+  --border-strong: #b0b6bd;
+  --surface-2: #f3f4f6;
+  --accent: #0b5cad;
+  font: 11pt/1.5 Calibri, Carlito, 'Segoe UI', system-ui, sans-serif;
+  color: #1f2328;
+  overflow-wrap: break-word;
+  user-select: text;
+}
+
+.doc-content h1,
+.doc-content h2,
+.doc-content h3,
+.doc-content h4,
+.doc-content h5,
+.doc-content h6 {
+  margin: 1.2em 0 0.4em;
+  line-height: 1.25;
+}
+
+.doc-content h1 {
+  font-size: 20pt;
+}
+
+.doc-content h2 {
+  font-size: 16pt;
+}
+
+.doc-content h3 {
+  font-size: 13pt;
+}
+
+.doc-content p {
+  margin: 0 0 0.6em;
+}
+
+.doc-content a {
+  color: var(--accent);
+}
+
+.doc-content table {
+  border-collapse: collapse;
+  margin: 0 0 1em;
+  max-width: 100%;
+}
+
+.doc-content td {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.doc-content td > p:last-child {
+  margin-bottom: 0;
+}
+
+.doc-content img {
+  max-width: 100%;
+  height: auto;
+}
+
+.doc-content pre {
+  padding: 8px 12px;
+  background: var(--surface-2);
+  font: 10pt/1.4 var(--font-mono);
+  white-space: pre-wrap;
+}
+
+.doc-content blockquote {
+  margin: 0 0 1em;
+  padding-left: 1em;
+  color: var(--text-muted);
+  border-left: 3px solid var(--border-strong);
+}
+
+/* A page break: a gap between two sheets. */
+.doc-content hr.page-break {
+  height: 24px;
+  margin: 94px -94px;
+  border: 0;
+  background: color-mix(in srgb, var(--surface-2) 70%, var(--bg));
+  box-shadow: inset 0 6px 6px -6px rgb(0 0 0 / 0.2), inset 0 -6px 6px -6px rgb(0 0 0 / 0.2);
+}
+
+@media print {
+  #print-root.doc-content hr.page-break {
+    height: 0;
+    margin: 0;
+    background: none;
+    box-shadow: none;
+    break-after: page;
+  }
+}

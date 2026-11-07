@@ -2,7 +2,7 @@
 
 O editor e leitor de arquivos da linha Jay: **documentos** (PDF, DOCX, ODT, RTF, Markdown, LaTeX, texto), **imagens** e **vídeos**, com **conversão** entre formatos. Leve, rápido para abrir e desenhar, e Rust primeiro. Windows primeiro, como o resto da linha.
 
-Escrito em 2026-11-06, a partir do Jay-A 0.1.0 e do Jay-H 0.1.0, e do estudo do LibreOffice, ONLYOFFICE, MarkText, PhotoCraft e Kdenlive em [`REFERENCIAS.md`](REFERENCIAS.md). As etapas 0 a 3 estão prontas. Licença: **MIT** (D1).
+Escrito em 2026-11-06, a partir do Jay-A 0.1.0 e do Jay-H 0.1.0, e do estudo do LibreOffice, ONLYOFFICE, MarkText, PhotoCraft e Kdenlive em [`REFERENCIAS.md`](REFERENCIAS.md). As etapas 0 a 4 estão prontas. Licença: **MIT** (D1).
 
 ## 1. Visão geral
 
@@ -33,8 +33,8 @@ flowchart LR
 | RF-M1 | Markdown: editar o código com prévia ao lado, CommonMark + GFM (tabelas, tarefas, notas de rodapé), fórmulas, exportar HTML e PDF | 2 ✅ |
 | RF-I1 | Editar imagens: cortar, girar, espelhar, brilho/contraste/saturação; desfazer e refazer; salvar como (redimensionar entra ao salvar, pelo "lado maior") | 3 ✅ |
 | RF-I2 | Converter imagens em lote: PNG, JPEG, WebP, AVIF, BMP, TIFF, GIF, ICO, QOI, com qualidade e tamanho | 3 ✅ |
-| RF-D1 | Ler DOCX, ODT e RTF em páginas: texto, estilos, listas, tabelas, imagens, cabeçalho e rodapé | 4 |
-| RF-D2 | Converter documentos: DOCX/ODT/RTF/Markdown/HTML/TXT entre si e para PDF | 4 / 8 |
+| RF-D1 | Ler DOCX, ODT e RTF numa folha A4: texto, títulos, negrito/itálico, listas, tabelas, imagens, links, quebras de página (cabeçalho e rodapé ficam para depois) | 4 ✅ |
+| RF-D2 | Converter documentos: DOCX/ODT/RTF/Markdown para DOCX, Markdown, HTML, TXT e PDF (ler HTML fica para a 8) | 4 ✅ / 8 |
 | RF-V1 | Vídeo: cortar e juntar sem recodificar, extrair um quadro como imagem, miniaturas na barra de tempo | 5 |
 | RF-V2 | Converter vídeo (MP4/H.264 + AAC; tamanho, qualidade, só o áudio) | 5 |
 | RF-L1 | LaTeX: editar com realce, compilar para PDF e ver ao lado, prévia de fórmulas | 6 |
@@ -71,7 +71,7 @@ flowchart LR
 | PDF (editar páginas) | **`lopdf`** (MIT, Rust puro) | Juntar, separar, reordenar, girar, apagar: é mexer na árvore de objetos, sem desenhar. |
 | Markdown | **`pulldown-cmark`** (MIT) → HTML, limpo por **`ammonia`** (MIT/Apache); fórmulas em **MathML Core** pelo **`math-core`** (MIT), que a WebView2 desenha sozinha | Tudo no Rust, sem KaTeX (JS + fontes) na página. As fórmulas entram depois da limpeza (o `ammonia` tiraria o MathML), cada uma gerada pelo `math-core`, que escapa o texto (testado com `	ext{<img onerror>}`). |
 | Editor de código (Markdown, LaTeX, texto) | **CodeMirror 6** (MIT) com a gramática do **`@lezer/markdown`** direto | O `@codemirror/lang-markdown` traria os modos de HTML, CSS e JS junto (o pacote do editor ia a 574 KB); sem ele, 352 KB, carregados só quando um texto abre. O app inicia com 19 KB de JS. |
-| Documentos | **Modelo interno próprio** + leitores com `quick-xml` (MIT) e `zip` (MIT); visualização em HTML paginado na WebView2 | A estrela do ONLYOFFICE (seção 6). Sem LibreOffice (300 MB) nem motor de layout próprio: o HTML da WebView2 já faz fontes, bidi e quebra de linha. |
+| Documentos | **Modelo interno próprio** (`jay_docs::doc`) + leitores com **`quick-xml`** (MIT) e **`zip`** (MIT, só deflate em Rust) para DOCX e ODT, leitor de RTF próprio; visualização em HTML numa folha A4 na WebView2; gravadores de DOCX, Markdown, HTML e TXT | A estrela do ONLYOFFICE (seção 6). Sem LibreOffice (300 MB) nem motor de layout próprio: o HTML da WebView2 já faz fontes, bidi e quebra de linha. O XML vira uma árvore pequena com limites (profundidade 512, 5 milhões de nós, nenhuma entidade de DTD expandida); cada parte do ZIP tem no máximo 256 MB descompactada. |
 | Documento → PDF | **`window.print()`** sobre a prévia, com um CSS de impressão: o diálogo da WebView2 já tem "Salvar como PDF" | Zero código nativo. O `PrintToPdfAsync` (salvar direto, sem diálogo) fica para a etapa 4 se fizer falta (S2). |
 | LaTeX | **Tectonic** (MIT; motor XeTeX), **baixado na primeira vez** que a pessoa compila (D6) | Instalar TeX no instalador quebraria o RNF-3. O Tectonic baixa só os pacotes que o documento usa. Alternativa: usar o MiKTeX/TeX Live que já estiver instalado. |
 | Imagens | Decodificar: **`image`** 0.25 (PNG, JPEG pelo `zune-jpeg`, GIF, WebP pelo `image-webp`, BMP, TIFF, ICO, QOI), Rust puro, com limites. Codificar: o próprio `image`, **`webp`** (libwebp, C, BSD) para WebP com perda e **`ravif`** (rav1e, Rust, BSD) para AVIF | Arquivo do usuário é entrada hostil, então tudo que **lê** é Rust. A libwebp só **codifica** pixels nossos: não há WebP com perda em Rust com licença compatível (o `zenwebp` é AGPL). O `ravif` vai sem o assembly do rav1e (pediria `nasm`): AVIF fica lento (2,7 s numa foto de 5,8 MP). AVIF, HEIC e SVG não são lidos pelo Rust: AVIF e SVG abrem no visualizador da WebView2, sem edição; HEIC não abre (S3). Redimensionar com o `image` (Lanczos3 ao salvar, `thumbnail` na prévia), sem o `fast_image_resize`: bastou. |
@@ -101,7 +101,8 @@ Jay-E/
 │     ├─ markdown.rs             # 2 ✅: Markdown → HTML limpo, fórmulas em MathML, marcas de linha
 │     ├─ text.rs                 # 2 ✅: codificação, fim de linha, gravação atômica, carimbo
 │     ├─ image.rs                # 3 ✅: decodificar com limites, edições, ajustes, codificar, converter
-│     ├─ doc/                    # 4: model.rs (o modelo), docx.rs, odt.rs, rtf.rs, html.rs, md.rs
+│     ├─ doc/                    # 4 ✅: mod.rs (o modelo), xml.rs, docx.rs (ler e gravar), odt.rs, rtf.rs,
+│     │                          # markdown.rs (ler e gravar), html.rs, text.rs
 │     ├─ video/                  # 5: sondar, cortar e juntar por cópia, Media Foundation
 │     ├─ latex.rs                # 6: Tectonic
 │     └─ jobs.rs                 # 5/8: fila de tarefas
@@ -173,7 +174,9 @@ flowchart LR
 - **Modelo:** blocos (parágrafo, título 1–6, item de lista, tabela, imagem, quebra de página, código, fórmula, citação) com trechos de texto (negrito, itálico, sublinhado, tachado, código, link, cor, tamanho, fonte) e estilos com nome. Igual ao estado em JSON do Muya, com o que o DOCX precisa a mais.
 - **Cada leitor** é um tokenizador do formato que chama um mapeador comum (`writerfilter` do LibreOffice), com limites de entrada (tamanho descompactado, profundidade de XML, número de partes).
 - **Ida e volta sem perda** (etapa 7): o leitor de DOCX/ODT guarda as partes e os elementos que não entende; o gravador escreve o modelo de volta **só onde mudou** e copia o resto byte a byte. Teste: abrir e salvar sem editar dá um arquivo equivalente (mesmo `document.xml` canônico).
-- **Fidelidade:** o Jay-E não promete página igual ao Word (seria o motor de layout do ONLYOFFICE). Promete o conteúdo, os estilos e a ordem certos, e a paginação aproximada (risco 3).
+- **Fidelidade:** o Jay-E não promete página igual ao Word (seria o motor de layout do ONLYOFFICE). Promete o conteúdo, a estrutura e a ordem certos (risco 3).
+- **Como ficou na etapa 4:** os títulos vêm do *nome* do estilo ("heading 1"; nos arquivos do Word em português o id é "Ttulo1", e o nome continua "heading 1") ou do nível de tópico; listas pela numeração do parágrafo ou do estilo ("List Number"), numeradas ou não pelo `numFmt`; inserções do controle de alterações entram, exclusões não (como aceitas). No ODT, os estilos automáticos e nomeados com herança (`parent-style-name`, no máximo 32 níveis). No RTF, a folha de estilos, `\outlinelevel`, listas por `\ls`/`\ilvl` (numeradas quando o `\listtext` tem número), tabelas por `\cell`/`\row`, `\uN`, `\'hh` em Windows-1252.
+- *shortcut: uma folha contínua, sem paginar; só as quebras de página explícitas separam folhas na tela (na impressão, a paginação é a da WebView2). Fontes, tamanhos, cores, caixas de texto, notas, cabeçalhos e rodapés e células mescladas não entram no modelo. Imagens dentro de RTF não são lidas.*
 
 ## 7. Segurança
 
@@ -186,6 +189,7 @@ flowchart LR
 - **Imagens no Markdown:** só arquivos de imagem na pasta do `.md` ou abaixo dela, liberados um a um no protocolo `asset`. Imagens da web não carregam (a CSP só deixa `asset:`): nada de pixel de rastreio. Uma `<img>` escrita em HTML cru perde o endereço na limpeza.
 - **Links na prévia** nunca navegam a janela: `http`, `https` e `mailto` abrem no navegador; o resto é ignorado.
 - **Não perder edição:** fechar uma aba ou a janela com algo não salvo pergunta antes (texto e imagem).
+- **Documentos:** o HTML da tela é gerado pelo `jay_docs::doc::html`, que escapa todo texto e só mantém links `http`, `https` e `mailto`; as imagens são servidas pelo `jaye://` a partir da memória, como estão no arquivo (num `<img>`, que não roda script nem de um SVG). Exportar usa o diálogo de salvar; as imagens de um Markdown exportado ganham outro prefixo se o nome já existir na pasta.
 - **Imagens:** decodificadas em Rust, com no máximo 300 megapixels, 65 535 px de lado e 3 GB de memória para o decodificador; a orientação EXIF é aplicada. O original nunca muda: "Salvar como" usa o diálogo (que pergunta antes de substituir) e a conversão em lote escreve `nome (2).ext` em vez de sobrescrever. Os metadados (EXIF, GPS) não são copiados para o arquivo novo.
 - **Downloads opcionais** (Tectonic, FFmpeg se entrar): só de endereços fixos no código, com SHA-256 conferido, como os instaladores no Jay-H.
 - **Salvar:** atômico, e nunca por cima do original sem a pessoa pedir.
@@ -200,7 +204,7 @@ Cada etapa termina com algo testável.
 | 1 ✅ | Leitor de PDF (S1): páginas pelo `jaye://`, só as visíveis, zoom, miniaturas, ir para página, buscar e copiar texto, links, senha | um PDF de 1 000 páginas rola liso (RNF-2); a primeira página em < 150 ms (RNF-1); um PDF corrompido mostra o aviso |
 | 2 ✅ | Markdown: CodeMirror + prévia do `pulldown-cmark` limpa pelo `ammonia`, rolagem sincronizada, KaTeX; salvar seguro (codificação, fim de linha, atômico, vigiar); exportar HTML e PDF | abrir, editar e salvar um `.md` em CP1252 com CRLF mantém os dois; `<script>` no Markdown não roda; o PDF exportado abre no leitor da etapa 1 |
 | 3 ✅ | Imagens: editar (cortar, girar, espelhar, redimensionar, ajustes) sem destruir, com desfazer; converter em lote (S3); imagens enormes em tiles | 10 imagens mistas viram WebP e AVIF; uma bomba de descompressão é recusada; uma foto de 100 MP abre em tiles |
-| 4 | Documentos: o modelo; leitores de DOCX, ODT, RTF, HTML e Markdown; visualização paginada; exportar para PDF, Markdown, HTML e TXT | um DOCX com títulos, listas, tabela e imagem aparece com tudo; DOCX → Markdown → DOCX mantém o texto e os títulos |
+| 4 ✅ | Documentos: o modelo; leitores de DOCX, ODT, RTF, HTML e Markdown; visualização paginada; exportar para PDF, Markdown, HTML e TXT | um DOCX com títulos, listas, tabela e imagem aparece com tudo; DOCX → Markdown → DOCX mantém o texto e os títulos |
 | 5 | Vídeo (S4): cortar e juntar por cópia, extrair quadro, miniaturas na barra de tempo; converter pelo Media Foundation, com fila e cancelar | cortar 10 s de um MP4 de 1 GB leva < 2 s e toca; converter um WebM em MP4 toca no player |
 | 6 | LaTeX: CodeMirror + compilar com o Tectonic (baixado na primeira vez, SHA-256), o PDF ao lado no leitor da etapa 1, erros na linha certa | um artigo com fórmulas e bibliografia compila; um erro de sintaxe aponta a linha |
 | 7 | Edição: DOCX e ODT (texto, estilos, listas, tabelas simples, imagens) com ida e volta sem perda; PDF: juntar, separar, reordenar, girar, apagar páginas, anotações, formulários | abrir e salvar um DOCX sem editar dá o mesmo `document.xml` canônico; editado, abre no Word e no LibreOffice; dois PDFs juntados abrem em ambos |
@@ -283,6 +287,14 @@ A mesma foto ampliada para 10 000×10 000 (100 MP, JPEG de 3,9 MB): **decodifica
   - Um `cargo fmt` meu reformatou o crate inteiro (a linha Jay não usa `rustfmt`); desfeito nos arquivos antigos, o `image.rs` novo ficou formatado.
 - **Tamanho:** o `jay-e.exe` release (com hayro, rav1e, libwebp e o resto) tem 16,2 MB; comprimido com LZMA (o do instalador NSIS), 4,6 MB. Dentro do RNF-3 (15 MB de instalador), ainda sem medir o instalador de verdade.
 - **Não visto:** os diálogos de salvar e de escolher pasta (não dá para automatizar; o lote foi medido pelo exemplo), o progresso e o "Parar" do lote no app, o tema claro no editor de imagem, perfis de cor ICC (ignorados: a imagem sai em sRGB como os números do arquivo).
+
+**Etapa 4, medido (2026-11-06):**
+- **Testes:** `cargo test` no `jay-docs` (53; os 17 novos: juntar trechos, XML com entidades, `CDATA`, bomba de entidades sem expandir e profundidade recusada; HTML escapado, sem `javascript:`; DOCX gravado e lido de volta igual (títulos, link, quebra, tab, lista aninhada numerada dentro de marcadores, tabela com imagem, código, quebra de página); ZIP sem `word/document.xml`; estilo localizado "Ttulo1", lista do Word, inserção aceita e exclusão fora; ODT com estilos, listas por nível, tabela e link; RTF parecido com o do Word (folha de estilos, `\u8364`, listas, tabela) e RTF hostil (100 000 grupos, cortado no meio); Markdown lido, gravado e lido de novo igual; imagens do Markdown viram arquivos; texto puro) e no `src-tauri` (7: base64 igual ao padrão).
+- **Arquivos reais:** 5 DOCX gerados pelo Word (do projeto `python-docx`, MIT), 2 ODT e 4 RTF de teste do LibreOffice (MPL), só para teste local, fora do repositório. Todos abrem em 0,5–3,3 ms no `cargo run --release --example doc_probe`. Os 5 DOCX fazem **DOCX → Markdown → DOCX com os mesmos títulos e o mesmo texto**. O primeiro teste achou que listas definidas no *estilo* do parágrafo ("List Number") saíam como parágrafo comum; corrigido.
+- **No Word de verdade:** um DOCX gravado pelo Jay-E (títulos, link, lista com subitem, lista numerada, tabela, imagem, quebra de página) aberto no Word 2016+ (por automação, só leitura): 2 páginas, os títulos como H1/H2, a lista numerada "1.", 3 itens na lista com o subitem, tabela 2×3, 1 imagem, o link certo.
+- **No app de dev, pela depuração remota:** 6 documentos (DOCX do Word e do Jay-E, ODT e RTF do LibreOffice) abrem em 10–34 ms com títulos, listas, tabelas, as imagens pelo `jaye://` e as quebras de página. "Exportar PDF" (com o `window.print` trocado) gera um PDF de 2 páginas, a quebra respeitada, lido pelo leitor da etapa 1.
+- **Defeitos achados e corrigidos no caminho:** um parágrafo só com a quebra de página voltava como "parágrafo vazio + quebra"; no RTF, o negrito de `{\b …}` era gravado depois de o grupo fechar e perdia o negrito.
+- **Não visto:** documentos salvos pelo Word em ODT e RTF (a automação do Word travou num diálogo invisível ao salvar; os arquivos de teste vieram do LibreOffice), os diálogos de exportar DOCX, Markdown, HTML e TXT (o conteúdo de cada gravador é o testado), um documento grande (centenas de páginas), o tema claro.
 
 ## 9. Riscos e spikes
 

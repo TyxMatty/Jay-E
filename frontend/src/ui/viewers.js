@@ -1,12 +1,10 @@
-// One viewer per kind of file (jay_docs::Kind). Images, video and audio use what WebView2 already
-// does fast; PDF is drawn by Rust (pdf-viewer.js); text, Markdown and LaTeX open in the editor
-// (text-editor.js). The other kinds say which stage brings their viewer (docs/ARQUITETURA.md, 8).
+// One viewer per kind of file (jay_docs::Kind): PDF drawn by Rust (pdf-viewer.js), documents read
+// by Rust (doc-viewer.js), text, Markdown and LaTeX in the editor (text-editor.js), images in the
+// image editor (image-viewer.js); video and audio use what WebView2 already does fast.
 import { h } from './dom.js';
 import { fileUrl, formatSize } from '../core/files.js';
 import { t } from '../core/i18n.js';
 
-/** The stage that brings the viewer of each kind not shown yet. */
-const STAGE = { document: 4 };
 
 const notice = (file, ...lines) =>
   h(
@@ -31,6 +29,7 @@ export async function createViewer(file) {
   try {
     // Loaded when first needed, so starting the app doesn't parse the editor.
     if (file.kind === 'pdf') return await (await import('./pdf-viewer.js')).createPdfViewer(file);
+    if (file.kind === 'document') return await (await import('./doc-viewer.js')).createDocViewer(file);
     if (['text', 'markdown', 'latex'].includes(file.kind)) return await (await import('./text-editor.js')).createTextEditor(file);
     const url = await fileUrl(file);
     // Rust-decoded editor; formats it can't decode (AVIF, SVG) are shown by the WebView instead.
@@ -42,10 +41,8 @@ export async function createViewer(file) {
         return h('video', { class: 'view-media', src: url, controls: true, preload: 'metadata', 'aria-label': file.name });
       case 'audio':
         return h('div', { class: 'view-notice' }, h('h2', {}, file.name), h('audio', { src: url, controls: true, preload: 'metadata', 'aria-label': file.name }));
-      case 'unknown':
-        return notice(file, t("Jay-E doesn't open this kind of file."));
       default:
-        return notice(file, t('The viewer for this kind of file arrives in stage {stage}.', { stage: STAGE[file.kind] }));
+        return notice(file, t("Jay-E doesn't open this kind of file."));
     }
   } catch (error) {
     return notice(file, t("Couldn't open it: {error}", { error: error?.message ?? String(error) }));

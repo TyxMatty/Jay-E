@@ -3,6 +3,7 @@
 // Prevents an additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod doc;
 mod files;
 mod image;
 mod pdf;
@@ -38,6 +39,7 @@ fn main() {
         .manage(files::OpenedPaths::default())
         .manage(pdf::Docs::default())
         .manage(image::Images::default())
+        .manage(doc::Documents::default())
         .register_asynchronous_uri_scheme_protocol("jaye", pdf::protocol)
         .setup(|app| {
             let args: Vec<String> = std::env::args().collect();
@@ -66,6 +68,10 @@ fn main() {
             text::text_save,
             text::markdown_render,
             text::markdown_export_html,
+            text::markdown_export_docx,
+            doc::doc_open,
+            doc::doc_close,
+            doc::doc_export,
             image::image_open,
             image::image_close,
             image::image_set_edits,

@@ -26,7 +26,7 @@ export function createFilesPanel() {
     { class: 'view-notice view-empty' },
     h('span', { class: 'empty-icon', html: icons.file, 'aria-hidden': 'true' }),
     h('h2', {}, t('Open a file or drop it here')),
-    h('p', { class: 'hint' }, isTauri ? t('PDF, Markdown, text, images, video and audio today; DOCX next.') : t('Only in the app: the browser preview opens no files.')),
+    h('p', { class: 'hint' }, isTauri ? t('PDF, Word and OpenDocument, Markdown, text, images, video and audio.') : t('Only in the app: the browser preview opens no files.')),
   );
 
   // A newer pick replaces an older one still loading.
