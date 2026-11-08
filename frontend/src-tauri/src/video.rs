@@ -162,6 +162,10 @@ pub async fn video_convert(path: PathBuf, options: jay_docs::video::mf::ConvertO
 #[tauri::command]
 pub async fn video_render(path: PathBuf, options: jay_docs::video::mf::ConvertOptions, edits: jay_docs::video::mf::Render, channel: Channel<ConvertEvent>, app: AppHandle, jobs: State<'_, VideoJobs>) -> Result<bool, VideoError> {
     opened(&app, &path)?;
+    // The music, too, must be a file the person picked (`video_pick_music`).
+    if let Some(music) = &edits.music {
+        opened(&app, Path::new(&music.path))?;
+    }
     let ext = if options.audio_only { "m4a" } else { "mp4" };
     let Some(target) = pick_target(&app, &path, format!("{} (edited).{ext}", stem(&path)), ext) else { return Ok(false) };
     let cancel = Arc::new(AtomicBool::new(false));
@@ -193,6 +197,82 @@ pub async fn video_pick_picture(app: AppHandle) -> Result<Option<(String, u32, u
         let mut png = Vec::new();
         small.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).map_err(|e| VideoError::Invalid { message: e.to_string() })?;
         Ok(Some((crate::doc::base64(&png), small.width(), small.height())))
+    })
+    .await
+}
+
+/// Runs `job` on its own thread with progress and Stop (as `video_convert`), announcing `path` at the end.
+fn run_job(app: &AppHandle, jobs: &VideoJobs, channel: Channel<ConvertEvent>, shown: String, job: impl FnOnce(&mut dyn FnMut(f64), &AtomicBool) -> Result<Option<PathBuf>, VideoError> + Send + 'static) {
+    let cancel = Arc::new(AtomicBool::new(false));
+    *jobs.0.lock().unwrap() = Some(cancel.clone());
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        let progress_channel = channel.clone();
+        let mut progress = move |done: f64| drop(progress_channel.send(ConvertEvent::Progress { done }));
+        let event = match job(&mut progress, &cancel) {
+            Ok(opened) => {
+                if let Some(p) = opened {
+                    files::announce(&handle, vec![p]);
+                }
+                ConvertEvent::Finished { path: shown }
+            }
+            Err(error) => ConvertEvent::Failed { error },
+        };
+        let _ = channel.send(event);
+    });
+}
+
+/// An animated GIF of the edited video (a minute at most) where the person picks.
+#[cfg(windows)]
+#[tauri::command]
+pub async fn video_gif(path: PathBuf, edits: jay_docs::video::mf::Render, max_width: u32, fps: u32, channel: Channel<ConvertEvent>, app: AppHandle, jobs: State<'_, VideoJobs>) -> Result<bool, VideoError> {
+    opened(&app, &path)?;
+    let Some(target) = pick_target(&app, &path, format!("{}.gif", stem(&path)), "gif") else { return Ok(false) };
+    let shown = target.to_string_lossy().into_owned();
+    run_job(&app, &jobs, channel, shown, move |progress, cancel| {
+        jay_docs::video::mf::render_gif(&path, &target, &edits, max_width, fps, progress, cancel)?;
+        Ok(Some(target))
+    });
+    Ok(true)
+}
+
+/// A PNG every `every` seconds into a folder the person picks.
+#[cfg(windows)]
+#[tauri::command]
+pub async fn video_frames(path: PathBuf, every: f64, channel: Channel<ConvertEvent>, app: AppHandle, jobs: State<'_, VideoJobs>) -> Result<bool, VideoError> {
+    opened(&app, &path)?;
+    let mut dialog = app.dialog().file();
+    if let Some(dir) = path.parent() {
+        dialog = dialog.set_directory(dir);
+    }
+    let Some(folder) = dialog.blocking_pick_folder().and_then(|p| p.into_path().ok()) else { return Ok(false) };
+    let shown = folder.to_string_lossy().into_owned();
+    run_job(&app, &jobs, channel, shown, move |progress, cancel| {
+        jay_docs::video::mf::frames_every(&path, every, &folder, progress, cancel)?;
+        Ok(None)
+    });
+    Ok(true)
+}
+
+/// Music or a sound to put on a video: picked here, so the page may name it. (path, name).
+#[tauri::command]
+pub async fn video_pick_music(app: AppHandle) -> Option<(String, String)> {
+    let path = app.dialog().file().add_filter("Audio", &["mp3", "m4a", "aac", "wav", "wma", "flac", "mp4", "mov"]).blocking_pick_file().and_then(|p| p.into_path().ok())?;
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let shown = path.to_string_lossy().into_owned();
+    app.state::<OpenedPaths>().allow(path);
+    Some((shown, name))
+}
+
+/// Subtitles (.srt or .vtt) picked here: their text (2 MB at most), for the page to read.
+#[tauri::command]
+pub async fn video_pick_subtitles(app: AppHandle) -> Result<Option<String>, VideoError> {
+    let Some(path) = app.dialog().file().add_filter("Subtitles", &["srt", "vtt"]).blocking_pick_file().and_then(|p| p.into_path().ok()) else { return Ok(None) };
+    blocking(move || {
+        if std::fs::metadata(&path)?.len() > 2 << 20 {
+            return Err(VideoError::TooBig);
+        }
+        Ok(Some(String::from_utf8_lossy(&std::fs::read(&path)?).into_owned()))
     })
     .await
 }

@@ -1842,6 +1842,23 @@ fieldset > h3 {
   pointer-events: none;
 }
 
+/* A blurred area as the export will have it; while drawing, the layer takes the pointer. */
+.video-blur {
+  position: absolute;
+  backdrop-filter: blur(10px);
+  outline: 1px dashed rgb(255 255 255 / 0.7);
+}
+
+.video-overlays.is-drawing {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.video-music {
+  display: grid;
+  gap: 4px;
+}
+
 .video-overlays > img {
   position: absolute;
 }

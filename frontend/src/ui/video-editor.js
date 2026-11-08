@@ -5,6 +5,7 @@ import { h } from './dom.js';
 import { t } from '../core/i18n.js';
 import { openVideoFiles } from './files.js';
 import { clock } from '../core/files.js';
+import { parseSubtitles, toWebVtt } from '../core/subtitles.js';
 
 const core = () => import('@tauri-apps/api/core');
 const call = async (cmd, args) => (await core()).invoke(cmd, args);
@@ -245,7 +246,8 @@ export function createVideoEditor(file, url) {
     .catch(() => {});
 
   // ----- Edit and export: the picture, speed, sound, text and a logo, previewed on the player -----
-  const look = { turns: 0, flipH: false, flipV: false, shape: 'original', brightness: 0, contrast: 0, saturation: 0, speed: 1, volume: 1, mute: false, fadeIn: 0, fadeOut: 0 };
+  const look = { turns: 0, flipH: false, flipV: false, shape: 'original', brightness: 0, contrast: 0, saturation: 0, speed: 1, volume: 1, mute: false, fadeIn: 0, fadeOut: 0, reverse: false, dissolve: 0 };
+  let music = null; // { path, name, volume, replace }
   /** Text and pictures laid on: { from, to, area (fractions of the edited frame, a PNG stamp), src }. */
   const overlays = [];
   const turner = h('div', { class: 'video-turner' }, video);
@@ -300,7 +302,10 @@ export function createVideoEditor(file, url) {
     overlayLayer.replaceChildren(
       ...overlays
         .filter((o) => now >= o.from && now < o.to)
-        .map((o) => h('img', { src: o.src, alt: '', style: `left:${o.area.x * 100}%;top:${o.area.y * 100}%;width:${o.area.w * 100}%;height:${o.area.h * 100}%` })),
+        .map((o) => {
+          const place = `left:${o.area.x * 100}%;top:${o.area.y * 100}%;width:${o.area.w * 100}%;height:${o.area.h * 100}%`;
+          return o.area.kind === 'blur' ? h('div', { class: 'video-blur', style: place }) : h('img', { src: o.src, alt: '', style: place });
+        }),
     );
   }
   video.addEventListener('timeupdate', showOverlays);
@@ -318,13 +323,24 @@ export function createVideoEditor(file, url) {
     if (crop.w < 1 || crop.h < 1) ops.push({ op: 'crop', ...crop });
     return {
       picture: { ops, adjust: { brightness: look.brightness, contrast: look.contrast, saturation: look.saturation }, strokes: [], areas: [] },
-      overlays: overlays.map(({ from, to, area }) => ({ from, to, area: { ...area, at: ops.length } })),
+      overlays: [...overlays, ...(burnSubs.checked ? subtitleOverlays() : [])].map(({ from, to, area }) => ({ from, to, area: { ...area, at: ops.length } })),
       speed: look.speed,
       volume: look.volume,
       mute: look.mute,
       fadeIn: look.fadeIn,
       fadeOut: look.fadeOut,
+      // The razor's pieces when it changed anything (kept, in their order); else the whole video.
+      pieces: piecesForExport(),
+      reverse: look.reverse,
+      dissolve: look.dissolve,
+      music: music ? { path: music.path, volume: music.volume, replace: music.replace } : null,
     };
+  }
+  function piecesForExport() {
+    const kept = order.filter((p) => p.keep);
+    if (pieces.length > 1 || kept.length !== pieces.length) return kept.map((p) => [p.start, p.end]);
+    // A marked part (Start here / End here) is what a GIF is made of.
+    return [];
   }
   const editSlider = (key, label, min, max, scale) => {
     const input = h('input', { type: 'range', min: String(min), max: String(max), step: '1', value: String(look[key] * scale), id: `video-${key}` });
@@ -358,30 +374,112 @@ export function createVideoEditor(file, url) {
   function addText() {
     const text = textInput.value.trim();
     if (!text) return;
+    overlays.push({ label: text, from: start, to: end ?? duration(), ...textStamp(text, textPlace.value) });
+    textInput.value = '';
+    listOverlays();
+    showOverlays();
+  }
+  /** `text` drawn white with a dark edge (several lines too), placed top, middle or bottom of the frame. */
+  function textStamp(text, where) {
     const { ew, eh } = fitFrame();
     const fontPx = Math.max(16, eh * 0.06);
     const c = document.createElement('canvas');
     const g = c.getContext('2d');
     const font = `700 ${fontPx}px ${getComputedStyle(document.body).fontFamily}`;
+    const lines = text.split('\n');
     g.font = font;
-    c.width = Math.ceil(g.measureText(text).width + fontPx * 0.6);
-    c.height = Math.ceil(fontPx * 1.4);
+    c.width = Math.ceil(Math.max(...lines.map((l) => g.measureText(l).width)) + fontPx * 0.6);
+    c.height = Math.ceil(fontPx * 1.25 * lines.length + fontPx * 0.25);
     g.font = font;
+    g.textAlign = 'center';
     g.lineJoin = 'round';
     g.lineWidth = fontPx * 0.15;
     g.strokeStyle = 'rgba(0,0,0,0.75)';
     g.fillStyle = '#fff';
-    g.strokeText(text, fontPx * 0.3, fontPx * 1.05);
-    g.fillText(text, fontPx * 0.3, fontPx * 1.05);
+    lines.forEach((l, i) => {
+      g.strokeText(l, c.width / 2, fontPx * (1.05 + 1.25 * i));
+      g.fillText(l, c.width / 2, fontPx * (1.05 + 1.25 * i));
+    });
     const w = Math.min(c.width / ew, 0.96);
     const hh = (w * ew * (c.height / c.width)) / eh;
-    const y = textPlace.value === 'top' ? 0.05 : textPlace.value === 'middle' ? (1 - hh) / 2 : 0.95 - hh;
+    const y = where === 'top' ? 0.05 : where === 'middle' ? (1 - hh) / 2 : 0.95 - hh;
     const src = c.toDataURL('image/png');
-    overlays.push({ label: text, from: start, to: end ?? duration(), src, area: { x: (1 - w) / 2, y, w, h: hh, kind: 'stamp', png: src.split(',')[1] } });
-    textInput.value = '';
-    listOverlays();
-    showOverlays();
+    return { src, area: { x: (1 - w) / 2, y, w, h: hh, kind: 'stamp', png: src.split(',')[1] } };
   }
+
+  // Blur an area: drag a box on the picture; blurred in the marked part (or all along).
+  let blurring = false;
+  overlayLayer.addEventListener('pointerdown', (e) => {
+    if (!blurring) return;
+    e.preventDefault();
+    const r = overlayLayer.getBoundingClientRect();
+    const frac = (ev) => [Math.min(Math.max((ev.clientX - r.left) / r.width, 0), 1), Math.min(Math.max((ev.clientY - r.top) / r.height, 0), 1)];
+    const a = frac(e);
+    const box = h('div', { class: 'video-blur is-drawing' });
+    overlayLayer.append(box);
+    overlayLayer.setPointerCapture(e.pointerId);
+    let b = a;
+    const place = () => Object.assign(box.style, { left: `${Math.min(a[0], b[0]) * 100}%`, top: `${Math.min(a[1], b[1]) * 100}%`, width: `${Math.abs(b[0] - a[0]) * 100}%`, height: `${Math.abs(b[1] - a[1]) * 100}%` });
+    const move = (ev) => ((b = frac(ev)), place());
+    const up = () => {
+      overlayLayer.removeEventListener('pointermove', move);
+      overlayLayer.removeEventListener('pointerup', up);
+      setBlurring(false);
+      if (Math.abs(b[0] - a[0]) > 0.01 && Math.abs(b[1] - a[1]) > 0.01) {
+        overlays.push({ label: t('Blurred area'), from: start, to: end ?? duration(), area: { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(b[0] - a[0]), h: Math.abs(b[1] - a[1]), kind: 'blur' } });
+        listOverlays();
+      }
+      showOverlays();
+    };
+    overlayLayer.addEventListener('pointermove', move);
+    overlayLayer.addEventListener('pointerup', up);
+  });
+  const blurButton = button(t('Blur an area'), () => setBlurring(!blurring), { 'aria-pressed': 'false' });
+  function setBlurring(on) {
+    blurring = on;
+    overlayLayer.classList.toggle('is-drawing', on);
+    blurButton.setAttribute('aria-pressed', String(on));
+  }
+
+  // Subtitles: shown in the player (a WebVTT track), and burned into the export if asked.
+  let cues = [];
+  const subsName = h('span', { class: 'hint' });
+  const burnSubs = h('input', { type: 'checkbox', id: 'video-burn' });
+  let track = null;
+  async function loadSubtitles() {
+    try {
+      const text = await call('video_pick_subtitles');
+      if (text == null) return;
+      cues = parseSubtitles(text);
+      track?.remove();
+      track = h('track', { kind: 'subtitles', label: t('Subtitles'), default: true, src: URL.createObjectURL(new Blob([toWebVtt(cues)], { type: 'text/vtt' })) });
+      video.append(track);
+      if (video.textTracks[0]) video.textTracks[0].mode = 'showing';
+      subsName.textContent = t('{count} lines', { count: cues.length });
+    } catch (e) {
+      subsName.textContent = t("Couldn't read them: {error}", { error: errorText(e) });
+    }
+  }
+  /** Each cue as text laid on at the bottom, for the export. */
+  const subtitleOverlays = () => cues.map((c) => ({ from: c.from, to: c.to, ...textStamp(c.text, 'bottom') }));
+
+  // Music: picked in Rust, mixed in or instead of the video's sound.
+  const musicName = h('span', { class: 'hint' });
+  const musicVolume = h('input', { type: 'range', min: '0', max: '200', value: '100', id: 'video-music-volume', onInput: () => music && (music.volume = Number(musicVolume.value) / 100) });
+  const musicReplace = h('input', { type: 'checkbox', id: 'video-music-replace', onChange: () => music && (music.replace = musicReplace.checked) });
+  const musicRow = h('div', { class: 'video-music', hidden: true }, h('div', { class: 'img-slider' }, h('label', { for: 'video-music-volume' }, t('Music volume')), musicVolume), h('label', { class: 'img-check' }, musicReplace, t("Instead of the video's sound")));
+  async function pickMusic() {
+    const picked = await call('video_pick_music');
+    if (!picked) return;
+    music = { path: picked[0], name: picked[1], volume: Number(musicVolume.value) / 100, replace: musicReplace.checked };
+    musicName.textContent = music.name;
+    musicRow.hidden = false;
+  }
+  const reverse = h('input', { type: 'checkbox', id: 'video-reverse', onChange: () => (look.reverse = reverse.checked) });
+  const dissolve = h('input', { type: 'number', class: 'input video-seconds', min: '0', max: '3', step: '0.25', value: '0', id: 'video-dissolve' });
+  dissolve.addEventListener('input', () => (look.dissolve = Math.min(Math.max(Number(dissolve.value) || 0, 0), 3)));
+  // A frame every N seconds, as PNGs into a folder.
+  const everyInput = h('input', { type: 'number', class: 'input video-seconds', min: '0.5', max: '3600', step: '0.5', value: '5', id: 'video-every' });
   async function addPicture() {
     const picked = await call('video_pick_picture');
     if (!picked) return;
@@ -403,7 +501,7 @@ export function createVideoEditor(file, url) {
   const presetSelect = h(
     'select',
     { class: 'input', id: 'video-preset' },
-    [['original', t('Best quality')], ['whatsapp', t('WhatsApp (720p)')], ['youtube', t('YouTube (1080p)')], ['small', t('Small file (480p)')], ['size', t('Shrink to a size…')], ['audio', t('Sound only (M4A)')]].map(([v, l]) => h('option', { value: v }, l)),
+    [['original', t('Best quality')], ['whatsapp', t('WhatsApp (720p)')], ['youtube', t('YouTube (1080p)')], ['small', t('Small file (480p)')], ['size', t('Shrink to a size…')], ['audio', t('Sound only (M4A)')], ['gif', t('Animated GIF (the marked part, up to a minute)')]].map(([v, l]) => h('option', { value: v }, l)),
   );
   const sizeInput = h('input', { type: 'number', class: 'input video-seconds', min: '1', max: '4000', step: '1', value: '25', id: 'video-size', 'aria-label': t('Size in MB') });
   const sizeRow = h('div', { class: 'img-slider', hidden: true }, h('label', { for: 'video-size' }, t('Size in MB (Discord: 25, WhatsApp: 16)')), sizeInput);
@@ -423,7 +521,8 @@ export function createVideoEditor(file, url) {
   const exportStatus = h('span', { class: 'hint', role: 'status' });
   const exportButton = h('button', { type: 'button', class: 'btn' }, t('Export…'));
   const stopButton = h('button', { type: 'button', class: 'btn btn-danger', hidden: true, onClick: () => call('video_cancel').catch(() => {}) }, t('Stop'));
-  exportButton.addEventListener('click', async () => {
+  /** Runs an export-like job (`command` with its args) with the bar, Stop and the result line. */
+  async function runJob(command, args) {
     const { Channel } = await core();
     const channel = new Channel();
     const running = (on) => ((exportButton.disabled = on), (stopButton.hidden = !on), (exportBar.hidden = !on));
@@ -439,11 +538,18 @@ export function createVideoEditor(file, url) {
     running(true);
     exportStatus.textContent = '';
     try {
-      if (!(await call('video_render', { path: file.path, options: exportOptions(), edits: renderEdits(), channel }))) running(false);
+      if (!(await call(command, { ...args, channel }))) running(false);
     } catch (e) {
       running(false);
       exportStatus.textContent = t("Couldn't export: {error}", { error: errorText(e) });
     }
+  }
+  exportButton.addEventListener('click', () => {
+    if (presetSelect.value !== 'gif') return runJob('video_render', { path: file.path, options: exportOptions(), edits: renderEdits() });
+    // A GIF: the marked part when nothing was cut with the razor.
+    const edits = renderEdits();
+    if (!edits.pieces.length && (start > 0 || end != null)) edits.pieces = [[start, end ?? duration()]];
+    runJob('video_gif', { path: file.path, edits, maxWidth: 480, fps: 12 });
   });
   const section = (title, ...items) => h('div', { class: 'img-adjust-section', role: 'group', 'aria-label': title }, h('h3', {}, title), ...items);
   const editPanel = h(
@@ -466,19 +572,33 @@ export function createVideoEditor(file, url) {
     section(
       t('Speed and sound'),
       h('div', { class: 'img-slider' }, h('label', { for: 'video-speed' }, t('Speed')), speedSelect),
+      h('label', { class: 'img-check' }, reverse, t('Play backward')),
       editSlider('volume', t('Volume'), 0, 200, 100),
       h('label', { class: 'img-check' }, mute, t('Mute')),
       seconds('fadeIn', t('Fade in (s)')),
       seconds('fadeOut', t('Fade out (s)')),
+      h('div', { class: 'img-slider' }, h('label', { for: 'video-dissolve' }, t('Dissolve between pieces (s)')), dissolve),
+      h('div', { class: 'img-auto' }, button(t('Add music…'), pickMusic), musicName),
+      musicRow,
     ),
     section(
       t('Text and picture'),
       h('div', { class: 'img-auto' }, textInput, textPlace, button(t('Add text'), addText)),
       h('span', { class: 'hint' }, t('Shown in the marked part (Start here / End here), or all along.')),
-      button(t('Add a picture (logo)…'), addPicture),
+      h('div', { class: 'img-auto' }, button(t('Add a picture (logo)…'), addPicture), blurButton),
+      h('div', { class: 'img-auto' }, button(t('Subtitles (.srt)…'), loadSubtitles), subsName),
+      h('label', { class: 'img-check' }, burnSubs, t('Burn the subtitles into the export')),
       overlayList,
     ),
-    section(t('Export'), h('div', { class: 'img-slider' }, h('label', { for: 'video-preset' }, t('As')), presetSelect), sizeRow, h('div', { class: 'img-auto' }, exportButton, stopButton), exportBar, exportStatus),
+    section(
+      t('Export'),
+      h('div', { class: 'img-slider' }, h('label', { for: 'video-preset' }, t('As')), presetSelect),
+      sizeRow,
+      h('div', { class: 'img-auto' }, exportButton, stopButton),
+      h('div', { class: 'img-auto' }, h('label', { for: 'video-every' }, t('A frame every (s)')), everyInput, button(t('Save frames…'), () => runJob('video_frames', { path: file.path, every: Number(everyInput.value) || 5 }))),
+      exportBar,
+      exportStatus,
+    ),
   );
   function toggleEdit() {
     editPanel.hidden = !editPanel.hidden;
