@@ -94,12 +94,46 @@ pub enum Op {
     Crop { x: f32, y: f32, w: f32, h: f32 },
 }
 
-/// -1..1, 0 = unchanged. Brightness and contrast scale by 1 + value, saturation too (CSS filters).
-#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+/// Tone and color. The sliders are -1..1, 0 = unchanged. Brightness and contrast scale by 1 + value,
+/// saturation too (CSS filters). Missing fields (an older list of edits) are "unchanged".
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Adjust {
     pub brightness: f32,
     pub contrast: f32,
     pub saturation: f32,
+    /// ±2 stops: the values are multiplied by 2^(2 × exposure).
+    pub exposure: f32,
+    /// Lifts (+) or darkens (−) the dark parts, by how dark each pixel is.
+    pub shadows: f32,
+    /// Brightens (+) or brings back (−) the bright parts, by how bright each pixel is.
+    pub highlights: f32,
+    /// Warmer (+, yellow) or cooler (−, blue).
+    pub temperature: f32,
+    /// Magenta (+) or green (−).
+    pub tint: f32,
+    /// Saturation that spares what is already saturated (and so skin tones).
+    pub vibrance: f32,
+    /// Black and white (Rec. 709 luma), last.
+    pub grayscale: bool,
+    pub levels: Levels,
+    /// The tone curve: points (in, out) in 0..1, sorted by `in`; fewer than two means none.
+    pub curve: Vec<[f32; 2]>,
+}
+
+/// Levels per channel (R, G, B): what becomes black and white, in 0..1, and the midtones' gamma.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Levels {
+    pub black: [f32; 3],
+    pub white: [f32; 3],
+    pub gamma: f32,
+}
+
+impl Default for Levels {
+    fn default() -> Self {
+        Self { black: [0.0; 3], white: [1.0; 3], gamma: 1.0 }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -167,41 +201,155 @@ pub fn apply(image: &DynamicImage, edits: &Edits) -> DynamicImage {
     }
     if edits.adjust != Adjust::default() {
         let mut rgba = out.into_rgba8();
-        adjust(&mut rgba, edits.adjust);
+        adjust(&mut rgba, &edits.adjust);
         out = DynamicImage::ImageRgba8(rgba);
     }
     out
 }
 
-/// CSS `brightness() contrast() saturate()` in that order, on 8-bit sRGB, alpha untouched.
-fn adjust(image: &mut RgbaImage, a: Adjust) {
-    let b = 1.0 + a.brightness.clamp(-1.0, 1.0);
-    let c = 1.0 + a.contrast.clamp(-1.0, 1.0);
-    let s = 1.0 + a.saturation.clamp(-1.0, 1.0);
-    // Brightness then contrast, per channel: a lookup table.
-    let lut: Vec<f32> = (0..256)
-        .map(|v| (((v as f32 / 255.0) * b - 0.5) * c + 0.5).clamp(0.0, 1.0) * 255.0)
-        .collect();
+/// On 8-bit sRGB, alpha untouched, in this order: exposure, levels, curve, temperature and tint (one
+/// lookup table per channel); shadows and highlights (by the pixel's luma); CSS `brightness()
+/// contrast()` (a table) and `saturate()`; vibrance; black and white.
+fn adjust(image: &mut RgbaImage, a: &Adjust) {
+    let s1 = |v: f32| if v.is_finite() { v.clamp(-1.0, 1.0) } else { 0.0 };
+    let b = 1.0 + s1(a.brightness);
+    let c = 1.0 + s1(a.contrast);
+    let s = 1.0 + s1(a.saturation);
+    let gain = 2f32.powf(2.0 * s1(a.exposure));
+    let (temp, tint) = (s1(a.temperature), s1(a.tint));
+    let white_balance = [1.0 + 0.2 * temp + 0.05 * tint, 1.0 - 0.15 * tint, 1.0 - 0.2 * temp + 0.05 * tint];
+    let curve = Curve::new(&a.curve);
+    let l = a.levels;
+    let gamma = if l.gamma.is_finite() { l.gamma.clamp(0.1, 10.0) } else { 1.0 };
+    // Exposure, levels, curve and white balance, per channel (0..1).
+    let tone: [Vec<f32>; 3] = std::array::from_fn(|ch| {
+        let (lo, hi) = (l.black[ch].clamp(0.0, 1.0), l.white[ch].clamp(0.0, 1.0));
+        let span = (hi - lo).max(1.0 / 255.0);
+        (0..256)
+            .map(|v| {
+                let mut x = (v as f32 / 255.0 * gain).min(1.0);
+                x = ((x - lo) / span).clamp(0.0, 1.0);
+                if gamma != 1.0 {
+                    x = x.powf(1.0 / gamma);
+                }
+                curve.at(x) * white_balance[ch]
+            })
+            .collect()
+    });
+    let (shadows, highlights, vibrance) = (s1(a.shadows), s1(a.highlights), s1(a.vibrance));
+    // Brightness then contrast, on 0..1, to 0..255.
+    let bc = |x: f32| ((x * b - 0.5) * c + 0.5).clamp(0.0, 1.0) * 255.0;
     // The saturate() matrix from the Filter Effects spec.
     let m = [
         [0.213 + 0.787 * s, 0.715 - 0.715 * s, 0.072 - 0.072 * s],
         [0.213 - 0.213 * s, 0.715 + 0.285 * s, 0.072 - 0.072 * s],
         [0.213 - 0.213 * s, 0.715 - 0.715 * s, 0.072 + 0.928 * s],
     ];
+    let luma = |p: [f32; 3]| 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
     image.par_chunks_mut(4 * 1024).for_each(|chunk| {
         for px in chunk.chunks_exact_mut(4) {
-            let [r, g, bl] = [
-                lut[px[0] as usize],
-                lut[px[1] as usize],
-                lut[px[2] as usize],
-            ];
-            for (i, row) in m.iter().enumerate() {
-                px[i] = (row[0] * r + row[1] * g + row[2] * bl)
-                    .round()
-                    .clamp(0.0, 255.0) as u8;
+            let mut p = [tone[0][px[0] as usize], tone[1][px[1] as usize], tone[2][px[2] as usize]];
+            if shadows != 0.0 || highlights != 0.0 {
+                let y = luma(p).clamp(0.0, 1.0);
+                let lift = shadows * 0.4 * (1.0 - y).powi(3) + highlights * 0.4 * y.powi(3);
+                p = p.map(|v| v + lift);
+            }
+            let [r, g, bl] = p.map(bc);
+            let mut out = m.map(|row| row[0] * r + row[1] * g + row[2] * bl);
+            if vibrance != 0.0 {
+                let max = out[0].max(out[1]).max(out[2]);
+                let min = out[0].min(out[1]).min(out[2]);
+                let k = 1.0 + vibrance * (1.0 - (max - min) / 255.0);
+                let y = luma(out);
+                out = out.map(|v| y + (v - y) * k);
+            }
+            if a.grayscale {
+                out = [luma(out); 3];
+            }
+            for i in 0..3 {
+                px[i] = out[i].round().clamp(0.0, 255.0) as u8;
             }
         }
     });
+}
+
+/// A smooth tone curve through the points that never overshoots between them (monotone cubic,
+/// Fritsch–Carlson); flat past the first and last point. Fewer than two points: unchanged.
+struct Curve {
+    xs: Vec<f32>,
+    ys: Vec<f32>,
+    slopes: Vec<f32>,
+}
+
+impl Curve {
+    fn new(points: &[[f32; 2]]) -> Self {
+        let mut pts: Vec<[f32; 2]> = points.iter().filter(|p| p[0].is_finite() && p[1].is_finite()).map(|p| [p[0].clamp(0.0, 1.0), p[1].clamp(0.0, 1.0)]).collect();
+        pts.sort_by(|a, b| a[0].total_cmp(&b[0]));
+        pts.dedup_by(|a, b| (a[0] - b[0]).abs() < 1e-4);
+        let (xs, ys): (Vec<f32>, Vec<f32>) = pts.iter().map(|p| (p[0], p[1])).unzip();
+        let n = xs.len();
+        if n < 2 {
+            return Self { xs: vec![], ys: vec![], slopes: vec![] };
+        }
+        let d: Vec<f32> = (0..n - 1).map(|i| (ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i])).collect();
+        let mut slopes = vec![0.0; n];
+        slopes[0] = d[0];
+        slopes[n - 1] = d[n - 2];
+        for i in 1..n - 1 {
+            slopes[i] = if d[i - 1] * d[i] <= 0.0 { 0.0 } else { (d[i - 1] + d[i]) / 2.0 };
+        }
+        for i in 0..n - 1 {
+            if d[i] == 0.0 {
+                slopes[i] = 0.0;
+                slopes[i + 1] = 0.0;
+                continue;
+            }
+            let (a, b) = (slopes[i] / d[i], slopes[i + 1] / d[i]);
+            let h = a.hypot(b);
+            if h > 3.0 {
+                slopes[i] = 3.0 / h * a * d[i];
+                slopes[i + 1] = 3.0 / h * b * d[i];
+            }
+        }
+        Self { xs, ys, slopes }
+    }
+
+    fn at(&self, x: f32) -> f32 {
+        let n = self.xs.len();
+        if n < 2 {
+            return x;
+        }
+        if x <= self.xs[0] {
+            return self.ys[0];
+        }
+        if x >= self.xs[n - 1] {
+            return self.ys[n - 1];
+        }
+        let i = self.xs.partition_point(|&v| v <= x) - 1;
+        let h = self.xs[i + 1] - self.xs[i];
+        let t = (x - self.xs[i]) / h;
+        let (t2, t3) = (t * t, t * t * t);
+        (2.0 * t3 - 3.0 * t2 + 1.0) * self.ys[i] + (t3 - 2.0 * t2 + t) * h * self.slopes[i] + (-2.0 * t3 + 3.0 * t2) * self.ys[i + 1] + (t3 - t2) * h * self.slopes[i + 1]
+    }
+}
+
+/// How many pixels have each value, per channel (R, G, B) and for the luma, out of 256 bins:
+/// what the Levels panel draws and the automatic levels read.
+pub fn histogram(image: &DynamicImage) -> [Vec<u32>; 4] {
+    let rgba = image.to_rgba8();
+    let mut out: [Vec<u32>; 4] = std::array::from_fn(|_| vec![0; 256]);
+    for px in rgba.pixels() {
+        if px[3] == 0 {
+            continue; // transparent pixels have no tone
+        }
+        let [r, g, b, _] = px.0;
+        out[0][r as usize] += 1;
+        out[1][g as usize] += 1;
+        out[2][b as usize] += 1;
+        let y = (0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32).round() as usize;
+        out[3][y.min(255)] += 1;
+    }
+    out
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -554,6 +702,53 @@ mod tests {
         .get_pixel(0, 0)
         .0;
         assert_eq!(&flat[..3], &[128, 128, 128]);
+    }
+
+    #[test]
+    fn tone_and_color() {
+        let px = |a: Adjust, rgb: [u8; 3]| apply(&DynamicImage::ImageRgba8(RgbaImage::from_pixel(1, 1, Rgba([rgb[0], rgb[1], rgb[2], 200]))), &Edits { adjust: a, ..Default::default() }).get_pixel(0, 0).0;
+        // An older list of edits (only the three CSS sliders) still reads, the rest unchanged.
+        let old: Adjust = serde_json::from_str(r#"{"brightness":0,"contrast":0,"saturation":0}"#).unwrap();
+        assert_eq!(old, Adjust::default());
+        // Exposure +0.5 = one stop: ×2.
+        assert_eq!(px(Adjust { exposure: 0.5, ..Default::default() }, [50, 100, 120]), [100, 200, 240, 200]);
+        // Levels: 0.2 becomes black and 0.6 white; a mid value in between is stretched.
+        let levels = Levels { black: [0.2; 3], white: [0.6; 3], gamma: 1.0 };
+        let stretched = px(Adjust { levels, ..Default::default() }, [51, 153, 102]);
+        assert!(stretched[..2] == [0, 255] && (127..=128).contains(&stretched[2]), "{stretched:?}");
+        // Gamma 2 brightens the midtones: 0.25 → 0.5.
+        assert_eq!(px(Adjust { levels: Levels { gamma: 2.0, ..Default::default() }, ..Default::default() }, [64, 64, 64])[0], 128);
+        // A curve through (0.5, 0.75) lifts the middle and keeps the ends.
+        let curve = vec![[0.0, 0.0], [0.5, 0.75], [1.0, 1.0]];
+        let lifted = px(Adjust { curve: curve.clone(), ..Default::default() }, [0, 128, 255]);
+        assert_eq!((lifted[0], lifted[2]), (0, 255));
+        assert!((190..=192).contains(&lifted[1]), "{lifted:?}");
+        // Monotone: never goes down between the points.
+        let c = Curve::new(&curve);
+        assert!((0..100).all(|i| c.at(i as f32 / 100.0) <= c.at((i + 1) as f32 / 100.0)));
+        // Warmer: more red, less blue.
+        let warm = px(Adjust { temperature: 0.5, ..Default::default() }, [100, 100, 100]);
+        assert!(warm[0] > 100 && warm[2] < 100 && warm[1] == 100, "{warm:?}");
+        // Shadows lift the dark more than the light.
+        let dark = px(Adjust { shadows: 1.0, ..Default::default() }, [20, 20, 20])[0] as i32 - 20;
+        let light = px(Adjust { shadows: 1.0, ..Default::default() }, [220, 220, 220])[0] as i32 - 220;
+        assert!(dark > 50 && light < 5, "{dark} {light}");
+        // Vibrance boosts a dull color more than a vivid one.
+        let dull = px(Adjust { vibrance: 1.0, ..Default::default() }, [120, 100, 100]);
+        let vivid = px(Adjust { vibrance: 1.0, ..Default::default() }, [250, 10, 10]);
+        assert!(dull[0] as i32 - dull[1] as i32 > 30 && vivid[0] == 255);
+        // Black and white: one gray, alpha kept.
+        let bw = px(Adjust { grayscale: true, ..Default::default() }, [200, 50, 10]);
+        assert!(bw[0] == bw[1] && bw[1] == bw[2] && bw[3] == 200);
+    }
+
+    #[test]
+    fn histogram_counts_each_channel() {
+        let mut img = RgbaImage::from_pixel(2, 1, Rgba([255, 0, 10, 255]));
+        img.put_pixel(1, 0, Rgba([0, 0, 0, 0]));
+        let h = histogram(&DynamicImage::ImageRgba8(img));
+        assert_eq!((h[0][255], h[1][0], h[2][10]), (1, 1, 1), "the transparent pixel isn't counted");
+        assert_eq!(h[3][55], 1); // 0.2126 × 255 + 0.0722 × 10
     }
 
     #[test]

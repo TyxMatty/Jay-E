@@ -3,8 +3,6 @@ import { WELCOME_ART } from './welcome-art.js';
 import { WELCOME_STEPS, clampStep } from '../core/welcome.js';
 import { t } from '../core/i18n.js';
 
-const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
-
 /**
  * The "Welcome!" tour, as in Jay-C: one card per step (core/welcome.js), Back/Next, dots, Skip.
  * Skip, Get started and Esc close it.
@@ -61,7 +59,7 @@ export function createWelcomeModal({ openSettings }) {
     nextButton.textContent = last ? t('Get started') : t('Next');
     skipButton.hidden = last;
     // The new card slides in from the side it comes from.
-    if (from !== index && !reducedMotion()) {
+    if (from !== index && document.documentElement.dataset.motion === 'full') {
       const dx = index > from ? 16 : -16;
       for (const el of [art, content]) el.animate([{ opacity: 0, translate: `${dx}px 0` }, { opacity: 1, translate: '0 0' }], { duration: 220, easing: 'ease-out' });
     }

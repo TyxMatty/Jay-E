@@ -116,11 +116,11 @@ Two layers: the **engine** in Rust ([`crates/jay-docs`](../crates/jay-docs), no 
 | 6. LaTeX | Compiles with Tectonic's engine inside the app: 1.4 s for an article with a bibliography (98 s the first time) |
 | 7. Editing | DOCX and ODT edited with the usual toolbar (loose pictures, tables, first-page and even-page headers, repeated header rows, pages, Ctrl+Z); PDF: pages, annotations and forms |
 | 8. Converter | One screen that converts files of every kind into a folder, one format per kind, with a queue, progress, Stop and asking before replacing; 20 mixed files in 3 s, the damaged one fails alone |
+| 9. Release | v0.1.0 published: NSIS installer, "Open with" for every kind, Jay-E in Jay-H |
 
 **Size:** the installer is 16.5 MiB, above the 15 MB goal because of the TeX engine (ICU's data is most of it).
 
 **Next stages:**
-- **9. Release:** file associations ("Open with"), Jay-E in Jay-H's catalog, the version published, installing on a clean machine.
 - **10. More tools:** images (curves and levels, filters, straighten, marking up), video (timeline, razor, speed, sound, fades, text over the video), PDF (compress, sign, redact, OCR), documents and the converter; ideas from PhotoCraft and OpenShot (`docs/REFERENCIAS.md`, section 6).
 
 **To do** (the full list is in [`ROADMAP.md`](../ROADMAP.md)):

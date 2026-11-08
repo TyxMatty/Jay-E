@@ -4,6 +4,8 @@ const STORAGE_KEY = 'jaye.settings';
 export const DEFAULT_SETTINGS = Object.freeze({
   /** 'system' | 'light' | 'dark' */
   theme: 'system',
+  /** Animations: 'on' or 'off' (core/motion.js), as in Jay-C. */
+  motion: 'on',
   /** The look: 'calm', 'neon' or 'soft' (core/style.js, styles/theme.css). */
   style: 'calm',
   /** Interface language: 'system' (the OS language), 'en' or 'pt-BR' (core/i18n.js). */

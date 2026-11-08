@@ -114,6 +114,28 @@ pub fn image_set_edits(id: u32, edits: Edits, images: State<Images>) -> Result<E
     Ok(Edited { rev: image.rev, width, height })
 }
 
+#[derive(Serialize)]
+pub struct Histogram {
+    r: Vec<u32>,
+    g: Vec<u32>,
+    b: Vec<u32>,
+    l: Vec<u32>,
+}
+
+/// The histogram the tone tools work from: the preview after the crop, rotations and flips, before
+/// any tone or color change.
+#[tauri::command]
+pub async fn image_histogram(id: u32, images: State<'_, Images>) -> Result<Histogram, ImageError> {
+    let image = images.get(id)?;
+    let (preview, ops) = {
+        let image = image.lock().unwrap();
+        (image.preview.clone(), image.edits.ops.clone())
+    };
+    let shaped = img::apply(&preview, &Edits { ops, ..Default::default() });
+    let [r, g, b, l] = img::histogram(&shaped);
+    Ok(Histogram { r, g, b, l })
+}
+
 /// Encodes the edited image and saves it where the person picks. `None` if they cancel.
 #[tauri::command]
 pub async fn image_save_as(id: u32, options: EncodeOptions, app: AppHandle) -> Result<Option<String>, ImageError> {

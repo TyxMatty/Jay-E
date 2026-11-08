@@ -1,7 +1,7 @@
 // Illustrations for the "Welcome!" tour (ui/welcome-modal.js), one small scene per step, drawn as
 // in Jay-C. Trusted static SVG (like icons.js). Colors come from the theme: `currentColor` is the
 // accent, the .wa-* classes map to theme variables. Motion lives in app.css (.wa-* keyframes) and
-// only runs without prefers-reduced-motion; otherwise each scene is a still picture.
+// only runs with <html data-motion="full"> (Settings › Animations); otherwise each scene is a still picture.
 
 const svg = (body) =>
   `<svg viewBox="0 0 240 140" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;

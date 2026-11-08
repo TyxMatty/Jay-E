@@ -1248,11 +1248,85 @@ fieldset > h3 {
 .img-adjust {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 20px;
-  padding: 8px 12px;
+  align-items: flex-start;
+  gap: 12px 28px;
+  max-height: 45vh;
+  padding: 10px 14px;
+  overflow-y: auto;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+}
+
+.img-adjust-section {
+  display: grid;
+  gap: 6px;
+}
+
+.img-adjust-section h3 {
+  margin: 0 0 2px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.img-adjust-end {
+  align-self: flex-end;
+  margin-left: auto;
+}
+
+.img-hist {
+  width: 256px;
+  height: 72px;
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.img-auto {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.img-auto .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.img-curve {
+  width: 168px;
+  height: 168px;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.img-curve-grid {
+  fill: color-mix(in srgb, var(--text) 4%, transparent);
+  stroke: color-mix(in srgb, var(--text) 14%, transparent);
+  stroke-width: 0.4;
+}
+
+.img-curve-diag {
+  stroke: color-mix(in srgb, var(--text) 20%, transparent);
+  stroke-width: 0.4;
+  stroke-dasharray: 2 2;
+}
+
+.img-curve-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.4;
+}
+
+.img-curve-point {
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-width: 1.2;
+  cursor: grab;
+}
+
+.img-curve-point:focus-visible {
+  outline: none;
+  fill: var(--accent);
 }
 
 .img-slider {
@@ -1759,7 +1833,6 @@ fieldset > h3 {
   height: 8px;
   border-radius: 999px;
   background: var(--border);
-  transition: width 0.2s, background 0.2s;
 }
 
 .welcome-dot[aria-current='step']::before {
@@ -1802,23 +1875,21 @@ fieldset > h3 {
 .wa-cut { stroke: #dc2626; stroke-width: 2.5; stroke-dasharray: 4 4; }
 .wa-dim { opacity: 0.35; }
 
-/* Each scene moves a little, on a loop; `--d` staggers. Still for reduced motion. */
-@media (prefers-reduced-motion: no-preference) {
-  .welcome-art :is(.wa-pop, .wa-drop, .wa-float, .wa-breathe, .wa-toggle, .wa-spin) {
-    transform-box: fill-box;
-    transform-origin: center;
-  }
-  .welcome-art .wa-pop { animation: wa-pop 420ms cubic-bezier(0.3, 1.5, 0.6, 1) var(--d, 0ms) both; }
-  .welcome-art .wa-drop { animation: wa-drop 2.4s ease-in infinite; }
-  .welcome-art .wa-flow { animation: wa-flow 900ms linear infinite; }
-  .welcome-art .wa-caret { animation: wa-blink 600ms steps(2) infinite; }
-  .welcome-art .wa-scroll { animation: wa-scroll 4s linear infinite; }
-  .welcome-art .wa-thumb { animation: wa-thumb 4s linear infinite; }
-  .welcome-art .wa-float { animation: wa-float 2s ease-in-out infinite alternate; }
-  .welcome-art .wa-breathe { animation: wa-breathe 2.4s ease-in-out infinite alternate; }
-  .welcome-art .wa-toggle { animation: wa-toggle 2.4s ease-in-out infinite alternate; }
-  .welcome-art .wa-spin { animation: wa-spin 3s linear infinite; }
+/* Each scene moves a little, on a loop; `--d` staggers. Still with Animations off. */
+:root[data-motion='full'] .welcome-art :is(.wa-pop, .wa-drop, .wa-float, .wa-breathe, .wa-toggle, .wa-spin) {
+  transform-box: fill-box;
+  transform-origin: center;
 }
+:root[data-motion='full'] .welcome-art .wa-pop { animation: wa-pop 420ms cubic-bezier(0.3, 1.5, 0.6, 1) var(--d, 0ms) both; }
+:root[data-motion='full'] .welcome-art .wa-drop { animation: wa-drop 2.4s ease-in infinite; }
+:root[data-motion='full'] .welcome-art .wa-flow { animation: wa-flow 900ms linear infinite; }
+:root[data-motion='full'] .welcome-art .wa-caret { animation: wa-blink 600ms steps(2) infinite; }
+:root[data-motion='full'] .welcome-art .wa-scroll { animation: wa-scroll 4s linear infinite; }
+:root[data-motion='full'] .welcome-art .wa-thumb { animation: wa-thumb 4s linear infinite; }
+:root[data-motion='full'] .welcome-art .wa-float { animation: wa-float 2s ease-in-out infinite alternate; }
+:root[data-motion='full'] .welcome-art .wa-breathe { animation: wa-breathe 2.4s ease-in-out infinite alternate; }
+:root[data-motion='full'] .welcome-art .wa-toggle { animation: wa-toggle 2.4s ease-in-out infinite alternate; }
+:root[data-motion='full'] .welcome-art .wa-spin { animation: wa-spin 3s linear infinite; }
 
 @keyframes wa-pop { from { scale: 0; opacity: 0; } }
 @keyframes wa-drop { 0% { translate: 0 -10px; opacity: 0; } 15% { opacity: 1; } 55%, 100% { translate: 0 62px; opacity: 0; } }
@@ -2640,4 +2711,90 @@ fieldset > h3 {
   .cv-size {
     display: none;
   }
+}
+
+/* ---------- The Jay glow ----------
+   Two soft lights in the style's accent colors behind the sections, as Jay-C's lobby and the
+   panels of Jay-A and Jay-H (not over a custom gradient background). The cards and viewers sit on
+   their own surfaces above it. */
+.app-panels {
+  position: relative;
+  isolation: isolate;
+}
+
+:root:not([data-background='gradient']) .app-panels::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(40% 50% at 30% 30%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 70%),
+    radial-gradient(35% 45% at 80% 75%, color-mix(in srgb, var(--accent-2, var(--accent)) 8%, transparent), transparent 70%);
+  pointer-events: none;
+}
+
+/* ---------- Motion, as in Jay-C ----------
+   Only with <html data-motion="full"> (Settings › Appearance › Animations; ui/theme.js). Uses the
+   independent `translate`/`scale` properties; entries use @starting-style, and dialogs also animate
+   out (display/overlay allow-discrete). */
+
+/* Dialogs (the welcome tour, saving an image, the converter's question): fade and rise in, fade out. */
+:root[data-motion='full'] :is(.welcome-modal, .img-dialog) {
+  transition:
+    opacity 180ms ease,
+    translate 180ms ease,
+    scale 180ms ease,
+    overlay 180ms allow-discrete,
+    display 180ms allow-discrete;
+}
+
+:root[data-motion='full'] :is(.welcome-modal, .img-dialog):not([open]) {
+  opacity: 0;
+  translate: 0 8px;
+  scale: 0.98;
+}
+
+@starting-style {
+  :root[data-motion='full'] :is(.welcome-modal, .img-dialog)[open] {
+    opacity: 0;
+    translate: 0 8px;
+    scale: 0.98;
+  }
+}
+
+:root[data-motion='full'] :is(.welcome-modal, .img-dialog)::backdrop {
+  transition:
+    opacity 180ms ease,
+    overlay 180ms allow-discrete,
+    display 180ms allow-discrete;
+}
+
+@starting-style {
+  :root[data-motion='full'] :is(.welcome-modal, .img-dialog)[open]::backdrop {
+    opacity: 0;
+  }
+}
+
+/* The tour's dots: the current one grows into its pill. */
+:root[data-motion='full'] .welcome-dot::before {
+  transition:
+    width 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 220ms ease;
+}
+
+/* Sections (Files, Convert, Settings): the chosen one fades in. */
+:root[data-motion='full'] .app-panel:not([hidden]) {
+  animation: panel-in 160ms ease;
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+}
+
+/* The converter's rows arrive one after another. */
+:root[data-motion='full'] .cv-row {
+  animation: panel-in 200ms ease both;
 }

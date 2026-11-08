@@ -10,6 +10,7 @@ import { shouldShowWelcome } from '../core/welcome.js';
 import { toggleTheme, currentTheme } from './theme.js';
 import { settings } from '../store/settings.js';
 import { resolveStyle } from '../core/style.js';
+import { normalizeMotion } from '../core/motion.js';
 import { t } from '../core/i18n.js';
 
 /** Each language in its own name, so it can be found whichever one is showing. */
@@ -47,7 +48,7 @@ function radioGroup(key, attrs, options, renderOption) {
     ),
   );
   const sync = () => {
-    const current = key === 'style' ? resolveStyle(settings.get().style) : settings.get()[key];
+    const current = key === 'style' ? resolveStyle(settings.get().style) : key === 'motion' ? normalizeMotion(settings.get().motion) : settings.get()[key];
     for (const input of group.querySelectorAll('input')) input.checked = input.value === current;
   };
   settings.subscribe(sync);
@@ -81,6 +82,12 @@ function createSettingsPanel({ openWelcome }) {
     [['system', t('System')], ['light', t('Light')], ['dark', t('Dark')]],
     (input, value, label) => h('label', {}, input, label),
   );
+  const motionGroup = radioGroup(
+    'motion',
+    { class: 'segmented', 'aria-labelledby': 'motion-label' },
+    [['on', t('On')], ['off', t('Off')]],
+    (input, value, label) => h('label', {}, input, label),
+  );
   const languageSelect = h(
     'select',
     { class: 'input', id: 'settings-language', 'aria-describedby': 'language-hint', onChange: (e) => settings.update({ language: e.target.value }) },
@@ -97,6 +104,7 @@ function createSettingsPanel({ openWelcome }) {
       h('h3', {}, t('Appearance')),
       h('div', { class: 'field' }, h('span', { class: 'field-label', id: 'style-label' }, t('Style')), styleGroup),
       h('div', { class: 'field' }, h('span', { class: 'field-label', id: 'theme-label' }, t('Theme')), themeGroup),
+      h('div', { class: 'field' }, h('span', { class: 'field-label', id: 'motion-label' }, t('Animations')), motionGroup),
       h(
         'div',
         { class: 'field' },
