@@ -1,5 +1,7 @@
 # Jay-E — Estudo do LibreOffice, ONLYOFFICE, MarkText, PhotoCraft, Kdenlive e OpenShot
 
+**Português** · [English](REFERENCIAS.en.md)
+
 Notas da leitura do código de cinco projetos open-source, feita a pedido do usuário antes de escrever o Jay-E. O Jay-E é **MIT** (D1). De LibreOffice (MPL-2.0/LGPL), ONLYOFFICE (AGPL-3.0) e Kdenlive (GPL-3.0) saem ideias, organização e números, **nunca código**. MarkText (MIT) e PhotoCraft (MIT/Apache-2.0) têm licença compatível; mesmo assim, só ideias por enquanto, e um trecho copiado de um deles leva o aviso de licença junto. Os caminhos citados são dos repositórios deles.
 
 Lido em 2026-11-06: LibreOffice `core` `72b0b19` (2026-11-06), ONLYOFFICE `core` `ed63e94` e `sdkjs` `9d21388` (2026-10-15), MarkText `a520bef` (2026-11-06), PhotoCraft `b49c6c9` (2026-11-06), Kdenlive `4a4d449` (2026-11-06). Clones rasos e parciais: do LibreOffice e do ONLYOFFICE, só os READMEs, cabeçalhos e listas de arquivos citados.

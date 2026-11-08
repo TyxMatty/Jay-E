@@ -2,7 +2,7 @@
 
 [Português](CONTINUAR.md) · **English**
 
-Updated on 2026-11-07, after stage 6 (LaTeX). Everything needed to set Jay-E up from scratch, run it, understand how each part works and know what comes next. The full plan, with each stage's measurements, is in [`ARQUITETURA.md`](ARQUITETURA.md) (in Portuguese).
+Updated on 2026-11-07, after stage 6 (LaTeX). Everything needed to set Jay-E up from scratch, run it, understand how each part works and know what comes next. The full plan, with each stage's measurements, is in [`ARQUITETURA.en.md`](ARQUITETURA.en.md).
 
 ## 0. On a PC that already has the project
 
@@ -121,9 +121,9 @@ Two layers: the **engine** in Rust ([`crates/jay-docs`](../crates/jay-docs), no 
 **Size:** the installer is 16.5 MiB, above the 15 MB goal because of the TeX engine (ICU's data is most of it).
 
 **Next stages:**
-- **10. More tools:** images (curves and levels, filters, straighten, marking up), video (timeline, razor, speed, sound, fades, text over the video), PDF (compress, sign, redact, OCR), documents and the converter; ideas from PhotoCraft and OpenShot (`docs/REFERENCIAS.md`, section 6).
+- **10. More tools:** images (curves and levels, filters, straighten, marking up), video (timeline, razor, speed, sound, fades, text over the video), PDF (compress, sign, redact, OCR), documents and the converter; ideas from PhotoCraft and OpenShot (`docs/REFERENCIAS.en.md`, section 6).
 
-**To do** (the full list is in [`ROADMAP.md`](../ROADMAP.md)):
+**To do** (the full list is in [`ROADMAP.en.md`](../ROADMAP.en.md)):
 - publish the first release (v0.1.0), so the updater and Jay-H have something to find;
 - LaTeX: compiling offline after the first time, "Save PDF…", Stop and the time limit in the app;
 - see if ICU's data can be cut to what XeTeX uses, to bring the installer back to 15 MB;

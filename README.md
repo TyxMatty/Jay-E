@@ -30,10 +30,10 @@ Install and update Jay-E from **[Jay-H](https://github.com/TyxMatty/Jay-H)**, th
 |---|---|
 | [`crates/jay-docs/`](crates/jay-docs/) | The engine (Rust, no Tauri): file detection, PDF (hayro), Markdown, DOCX/ODT/RTF, images, video (MP4 stream copy, Media Foundation) and LaTeX (Tectonic's engine) |
 | [`frontend/`](frontend/) | Tauri v2 + vanilla JS app (Vite), with CodeMirror 6 for the editors |
-| [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md) | Architecture, flows, stages and what was measured (in Portuguese) |
-| [`docs/REFERENCIAS.md`](docs/REFERENCIAS.md) | Notes from studying LibreOffice, ONLYOFFICE, MarkText, PhotoCraft and Kdenlive (ideas only, no code) |
+| [`docs/ARQUITETURA.en.md`](docs/ARQUITETURA.en.md) | Architecture, flows, stages and what was measured |
+| [`docs/REFERENCIAS.en.md`](docs/REFERENCIAS.en.md) | Notes from studying LibreOffice, ONLYOFFICE, MarkText, PhotoCraft and Kdenlive (ideas only, no code) |
 | [`docs/CONTINUAR.en.md`](docs/CONTINUAR.en.md) | Setting up on a new PC, how each part works, current state and next steps |
-| [`ROADMAP.md`](ROADMAP.md) | What's done, what's next and the to-do list |
+| [`ROADMAP.en.md`](ROADMAP.en.md) | What's done, what's next and the to-do list |
 | [`scripts/`](scripts/) | Development tools: running JS in the real app, the README's screenshots |
 
 ## Running the app

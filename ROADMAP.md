@@ -1,76 +1,77 @@
-# Jay-E roadmap
+# Roteiro do Jay-E
 
-Jay-E is the editor and reader of the Jay line: documents, images and video, with conversion between formats. Windows first.
+**Português** · [English](ROADMAP.en.md)
 
-Every stage ends with something testable. The full plan, with the "done when" checks and the measurements of each finished stage, is in [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md) (in Portuguese), section 8.
+O Jay-E é o editor e leitor da linha Jay: documentos, imagens e vídeo, com conversão entre formatos. Windows primeiro.
 
-## Done
+Cada etapa termina com algo testável. O plano completo, com os testes de "pronto quando" e as medidas de cada etapa feita, está em [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md), seção 8.
 
-- [x] **0. Scaffold:** Tauri v2 + Vite + vanilla JS, Jay-C's three styles (Calm, Neon, Soft), single instance; open from the dialog, a drop, the command line or a second launch; file type detection; one tab per file.
-- [x] **1. PDF reader:** drawn in Rust with hayro, only the visible pages; zoom, thumbnails, go to page, search, copy text, links, password. A 1,000-page PDF scrolls at 72 fps.
-- [x] **2. Markdown and text:** CodeMirror with a live preview rendered in Rust (math included, sanitized by ammonia); saving keeps the file's encoding and line endings, atomically; export to HTML and PDF.
-- [x] **3. Images:** non-destructive edits (crop, rotate, flip, brightness/contrast/saturation) with undo; batch conversion to WebP, AVIF, JPEG, PNG and more; 100 MP photos; decompression bombs refused.
-- [x] **4. Documents:** one document model with DOCX, ODT, RTF, HTML and Markdown readers; paged A4 view; export to DOCX, Markdown, HTML, text and PDF.
-- [x] **5. Video:** cut and join MP4/MOV without re-encoding (10 s out of a 1 GB file in 42 ms), thumbnail strip, save frames as PNG, convert to MP4 or M4A through Windows' Media Foundation.
-- [x] **Updates:** Jay-E checks its latest GitHub release at startup and offers "Update to x.y.z"; the installer is checked against GitHub's SHA-256, unsaved edits are asked about, and Jay-E reopens when it's done. Releases are built by CI on a version tag.
-- [x] **6. LaTeX:** compiled to PDF by Tectonic's TeX engine built into `jay-e.exe` (run as a child process, no downloaded program), the PDF beside the editor in the stage 1 reader, errors that jump to their line. An article with a bibliography: 1.4 s (98 s the first time, fetching 42 MB of TeX packages).
+## Feito
 
-## Next
+- [x] **0. Base:** Tauri v2 + Vite + JS puro, os três estilos do Jay-C (Calm, Neon, Soft), instância única; abrir pelo diálogo, soltando, pela linha de comando ou por um segundo lançamento; detecção do tipo de arquivo; uma aba por arquivo.
+- [x] **1. Leitor de PDF:** desenhado no Rust com o hayro, só as páginas visíveis; zoom, miniaturas, ir para página, buscar, copiar texto, links, senha. Um PDF de 1 000 páginas rola a 72 quadros/s.
+- [x] **2. Markdown e texto:** CodeMirror com prévia ao vivo feita no Rust (fórmulas incluídas, limpa pelo ammonia); salvar mantém a codificação e o fim de linha do arquivo, de forma atômica; exportar para HTML e PDF.
+- [x] **3. Imagens:** edições que não destroem o original (cortar, girar, espelhar, brilho/contraste/saturação) com desfazer; converter em lote para WebP, AVIF, JPEG, PNG e outros; fotos de 100 MP; bombas de descompressão recusadas.
+- [x] **4. Documentos:** um modelo de documento com leitores de DOCX, ODT, RTF, HTML e Markdown; vista em páginas A4; exportar para DOCX, Markdown, HTML, texto e PDF.
+- [x] **5. Vídeo:** cortar e juntar MP4/MOV sem recodificar (10 s de um arquivo de 1 GB em 42 ms), faixa de miniaturas, salvar quadros em PNG, converter para MP4 ou M4A pelo Media Foundation do Windows.
+- [x] **Atualizações:** o Jay-E confere o último release no GitHub ao abrir e oferece "Atualizar para x.y.z"; o instalador é conferido contra o SHA-256 do GitHub, edições não salvas são perguntadas, e o Jay-E reabre no fim. Os releases são gerados pela CI num tag de versão.
+- [x] **6. LaTeX:** compilado para PDF pelo motor do TeX do Tectonic dentro do `jay-e.exe` (rodado como processo filho, sem programa baixado), o PDF ao lado do editor no leitor da etapa 1, erros que levam à linha. Um artigo com bibliografia: 1,4 s (98 s na primeira vez, baixando 42 MB de pacotes do TeX).
 
-- [ ] **7. Editing:** DOCX and ODT (text, styles, lists, simple tables, images) with a lossless round trip; PDF: merge, split, reorder, rotate and delete pages, annotations, forms.
-  - [x] DOCX edited in place with a word-processor toolbar, on the file's own page, fonts and styles; saving rewrites only the changed paragraphs (Word opens the result without repairs).
-  - [x] ODT the same way (same toolbar, pictures, tables, lists, header and footer); RTF stays read-only (export to DOCX).
-  - [x] Pictures resized and moved freely anywhere on the page; inserting pictures (file or Ctrl+V) and tables; headers and footers; the page split into the file's pages; Ctrl+Z/Ctrl+Y for everything; pasting with formatting.
-  - [x] PDF: reorder, rotate, delete, insert another PDF and save pages apart; highlight, draw, notes, text, erase; fill forms; undo and save.
-  - [x] UI pass on the Jay brand (from Jay-C): the editing toolbars in Jay-C's segmented groups, in each style's own radius, the pressed controls in the accent; the window and taskbar icon is the wolf in the style's colors and changes with it, also in dev runs started from inside another app's package.
-  - [x] Rows and columns in the file's tables (insert above/below/left/right, delete); a header or footer where the file had none; long tables split row by row across pages, as in Word.
-  - [x] First-page and even-page headers and footers ("Different first page", "Different odd & even pages"); a table's header row repeated at the top of each page it goes on to.
-- [x] **8. Converter:** one batch screen for every kind of file (images, DOCX/ODT/RTF/Markdown, PDF to text, video and audio), one format per kind, a queue with progress per file, Stop, and asking before overwriting (keep both, replace, skip). 20 mixed files in 3 s; the damaged one failed alone and the other 18 came out.
-- [x] **9. Release:** [v0.1.0](https://github.com/TyxMatty/Jay-E/releases/tag/v0.1.0) published on 2026-11-07: NSIS installer in `%LOCALAPPDATA%\Jay-E` (17 MB), file associations ("Open with"), Jay-E in Jay-H's catalog. Installed, a PDF opened with a double click, and Jay-H found Jay-E.
-- [ ] **10. More tools:** the image and video editors grow (ideas from PhotoCraft and OpenShot, `docs/REFERENCIAS.md` section 6), and more ideas for every kind of file.
-  - [x] Images, tone and color: Curves and Levels with a histogram; exposure, highlights/shadows, temperature and tint, vibrance; black and white; Auto tone, contrast and color. All in the edit list, undoable.
-  - [x] Jay brand: the welcome tour and the dialogs animate as in Jay-C (Settings › Appearance › Animations, On/Off), and the accent glow of every Jay app sits behind the sections.
-  - [x] Images, filters: sharpen, blur, reduce noise, vignette; color looks from `.cube` LUT files.
-  - [x] Images, geometry: straighten (free rotation with a grid), crop to a ratio (1:1, 4:3, 16:9…), perspective crop.
-  - [x] Images, drawing: pen and highlighter in any color and size, over the picture; each stroke undoes on its own and follows later rotations, flips and crops.
-  - [x] Images, marking up: text, arrows, rectangles and ellipses, blur or pixelate an area (hide data).
-  - [x] Images: red eye; remove a spot.
-  - [x] Images: Export with a preview and the file size before saving.
-  - [x] Video, timeline: thumbnails and the audio waveform, zoom, frame by frame (, and .).
-  - [x] Video, razor: split into several pieces, drop the ones in the middle, reorder them; copied without re-encoding.
-  - [x] Video, speed (0.25× to 4×); a frame shape (1:1, 9:16, 16:9, 4:5), rotate 90°, flip.
-  - [x] Video: play in reverse.
-  - [x] Video, sound: volume, mute, fade in and out, save the sound alone.
-  - [x] Video: replace the sound or add music.
-  - [x] Video, fades to and from black; text and a watermark picture over the video, from a time to a time; brightness, contrast, saturation.
-  - [x] Video: a dissolve between the razor's pieces; blur an area.
-  - [x] Video: export presets (WhatsApp, YouTube 1080p, small file, sound only).
-  - [x] Video: animated GIF.
-  - [x] Images: the same edits on many pictures at once; read HEIC and RAW through Windows' own codecs (WIC); see the photo's details (place, camera) and save without them; before/after.
-  - [x] Video: shrink to a size (25 MB for Discord, 16 MB for WhatsApp).
-  - [x] Video: subtitles (`.srt`, `.vtt`) shown in the player and burned in; save a frame every N seconds.
-  - [ ] PDF: compress (images at a lower resolution); a drawn signature; black out text for good (redaction, the text removed, not covered); make it searchable with Windows' own OCR (`Windows.Media.Ocr`); pictures into one PDF and pages as pictures.
-  - [ ] Documents: find and replace, word count, spelling in the file's language; compare two versions of a DOCX.
-  - [ ] Converter: read HTML; LaTeX to PDF; a folder watched for new files.
+## A seguir
 
-## To do (found along the way)
+- [ ] **7. Edição:** DOCX e ODT (texto, estilos, listas, tabelas simples, imagens) com ida e volta sem perda; PDF: juntar, separar, reordenar, girar e apagar páginas, anotações, formulários.
+  - [x] DOCX editado no lugar com uma barra de processador de texto, na própria página, fontes e estilos do arquivo; salvar reescreve só os parágrafos que mudaram (o Word abre o resultado sem reparos).
+  - [x] ODT do mesmo jeito (a mesma barra, imagens, tabelas, listas, cabeçalho e rodapé); RTF continua só leitura (exportar para DOCX).
+  - [x] Imagens redimensionadas e movidas livremente em qualquer lugar da página; inserir imagens (arquivo ou Ctrl+V) e tabelas; cabeçalhos e rodapés; a página dividida nas páginas do arquivo; Ctrl+Z/Ctrl+Y para tudo; colar com formatação.
+  - [x] PDF: reordenar, girar, apagar, inserir outro PDF e salvar páginas à parte; destacar, desenhar, notas, texto, borracha; preencher formulários; desfazer e salvar.
+  - [x] Passada de interface na marca Jay (do Jay-C): as barras de edição nos grupos segmentados do Jay-C, no raio de cada estilo, os botões ligados na cor de destaque; o ícone da janela e da barra de tarefas é o lobo nas cores do estilo e muda com ele, também em execuções de dev iniciadas de dentro do pacote de outro app.
+  - [x] Linhas e colunas nas tabelas do arquivo (inserir acima/abaixo/à esquerda/à direita, apagar); um cabeçalho ou rodapé onde o arquivo não tinha; tabelas longas divididas linha por linha entre páginas, como no Word.
+  - [x] Cabeçalhos e rodapés diferentes na primeira página e nas pares ("Primeira página diferente", "Páginas pares e ímpares diferentes"); a linha de título de uma tabela repetida no topo de cada página em que ela continua.
+- [x] **8. Conversor:** uma tela de lote para todos os tipos de arquivo (imagens, DOCX/ODT/RTF/Markdown, PDF para texto, vídeo e áudio), um formato por tipo, uma fila com progresso por arquivo, Parar, e pergunta antes de sobrescrever (manter os dois, substituir, pular). 20 arquivos mistos em 3 s; o danificado falhou sozinho e os outros 18 saíram.
+- [x] **9. Lançamento:** [v0.1.0](https://github.com/TyxMatty/Jay-E/releases/tag/v0.1.0) publicado em 07/11/2026: instalador NSIS em `%LOCALAPPDATA%\Jay-E` (17 MB), associações de arquivo ("Abrir com"), o Jay-E no catálogo do Jay-H. Instalado, um PDF aberto com dois cliques, e o Jay-H achou o Jay-E.
+- [ ] **10. Mais ferramentas:** os editores de imagem e de vídeo crescem (ideias do PhotoCraft e do OpenShot, [`docs/REFERENCIAS.md`](docs/REFERENCIAS.md) seção 6), e mais ideias para cada tipo de arquivo.
+  - [x] Imagens, tom e cor: Curvas e Níveis com histograma; exposição, realces/sombras, temperatura e matiz, vibração; preto e branco; tom, contraste e cor automáticos. Tudo na lista de edições, com desfazer.
+  - [x] Marca Jay: o tour de boas-vindas e os diálogos animam como no Jay-C (Configurações › Aparência › Animações, Ligadas/Desligadas), e o brilho de destaque de todo app Jay fica atrás das seções.
+  - [x] Imagens, filtros: nitidez, desfoque, reduzir ruído, vinheta; visuais de cor de arquivos LUT `.cube`.
+  - [x] Imagens, geometria: endireitar (giro livre com grade), cortar numa proporção (1:1, 4:3, 16:9…), corte em perspectiva.
+  - [x] Imagens, desenho: caneta e marca-texto em qualquer cor e tamanho, sobre a imagem; cada traço desfaz sozinho e acompanha giros, espelhamentos e cortes feitos depois.
+  - [x] Imagens, anotações: texto, setas, retângulos e elipses, borrar ou pixelar uma área (esconder dados).
+  - [x] Imagens: olhos vermelhos; remover mancha.
+  - [x] Imagens: Exportar com prévia e o tamanho do arquivo antes de salvar.
+  - [x] Vídeo, linha do tempo: miniaturas e a forma de onda do som, zoom, quadro a quadro (, e .).
+  - [x] Vídeo, navalha: dividir em vários trechos, tirar os do meio, reordenar; copiado sem recodificar.
+  - [x] Vídeo, velocidade (0,25× a 4×); um formato de quadro (1:1, 9:16, 16:9, 4:5), girar 90°, espelhar.
+  - [x] Vídeo: tocar ao contrário.
+  - [x] Vídeo, som: volume, sem som, entrada e saída graduais, salvar só o som.
+  - [x] Vídeo: trocar o som ou pôr música.
+  - [x] Vídeo, entradas e saídas do preto; texto e uma imagem de marca d'água sobre o vídeo, de um tempo a outro; brilho, contraste, saturação.
+  - [x] Vídeo: dissolver entre os trechos da navalha; borrar uma área.
+  - [x] Vídeo: predefinições de exportação (WhatsApp, YouTube 1080p, arquivo pequeno, só o som).
+  - [x] Vídeo: GIF animado.
+  - [x] Imagens: as mesmas edições em várias imagens de uma vez; ler HEIC e RAW pelos codecs do próprio Windows (WIC); ver os detalhes da foto (lugar, câmera) e salvar sem eles; antes/depois.
+  - [x] Vídeo: encolher para um tamanho (25 MB para o Discord, 16 MB para o WhatsApp).
+  - [x] Vídeo: legendas (`.srt`, `.vtt`) mostradas no player e gravadas no vídeo; salvar um quadro a cada N segundos.
+  - [ ] PDF: comprimir (imagens em resolução menor); uma assinatura desenhada; tarjar texto de verdade (redação: o texto removido, não coberto); deixar pesquisável com o OCR do próprio Windows (`Windows.Media.Ocr`); imagens num PDF só e páginas como imagens.
+  - [ ] Documentos: localizar e substituir, contar palavras, ortografia no idioma do arquivo; comparar duas versões de um DOCX.
+  - [ ] Conversor: ler HTML; LaTeX para PDF; uma pasta vigiada para arquivos novos.
 
-- [ ] Converter: try Stop in the middle of a batch in the app.
+## Pendências (achadas no caminho)
 
-- [x] Publish the first release: [v0.1.0](https://github.com/TyxMatty/Jay-E/releases/tag/v0.1.0) on 2026-11-07 (17 MB installer, SHA-256 on GitHub).
-- [ ] Try updating from one version to the next (needs a second release).
-- [ ] Measure the PDF reader's first page in a release build (the 150 ms goal passes in 3 of 5 PDFs in dev).
-- [ ] Try a PDF with a user password, an external link from a PDF, and screen readers on the pages.
-- [ ] The light theme in the PDF reader, the editors and the document view.
-- [ ] Video: HEVC, a phone video recorded sideways (rotation), the conversion's progress and Stop in the app; an M4A made by Media Foundation opens as a video.
-- [ ] Documents: a large DOCX (hundreds of pages); ODT and RTF saved by Word.
-- [ ] Markdown: a 50 MB file in the editor; the close confirmation with unsaved edits, checked in the app.
-- [ ] LaTeX: compiling offline after the first time, "Save PDF…", Stop and the time limit in the app, a document with images.
-- [ ] The installer grew to 16.5 MiB with the TeX engine (goal: 15 MB): see if ICU's data can be cut to what XeTeX uses.
-- [ ] CI that runs `npm test` and both `cargo test` on every push.
+- [ ] Conversor: testar o Parar no meio de um lote no app.
 
-## Open questions
+- [x] Publicar o primeiro release: [v0.1.0](https://github.com/TyxMatty/Jay-E/releases/tag/v0.1.0) em 07/11/2026 (instalador de 17 MB, SHA-256 no GitHub).
+- [ ] Testar a atualização de uma versão para a seguinte (precisa de um segundo release).
+- [ ] Medir a primeira página do leitor de PDF num build de release (a meta de 150 ms passa em 3 de 5 PDFs em dev).
+- [ ] Testar um PDF com senha de usuário, um link externo de um PDF, e leitores de tela nas páginas.
+- [ ] O tema claro no leitor de PDF, nos editores e na vista de documentos.
+- [ ] Vídeo: HEVC, um vídeo de celular gravado de lado (rotação), o progresso e o Parar da conversão no app; um M4A feito pelo Media Foundation abre como vídeo.
+- [ ] Documentos: um DOCX grande (centenas de páginas); ODT e RTF salvos pelo Word.
+- [ ] Markdown: um arquivo de 50 MB no editor; a confirmação ao fechar com edições não salvas, conferida no app.
+- [ ] LaTeX: compilar sem internet depois da primeira vez, "Salvar PDF…", Parar e o tempo limite no app, um documento com imagens.
+- [ ] O instalador cresceu para 16,5 MiB com o motor do TeX (meta: 15 MB): ver se os dados do ICU podem ser cortados ao que o XeTeX usa.
+- [ ] CI que roda `npm test` e os dois `cargo test` a cada push.
 
-- Spreadsheets (XLSX/ODS/CSV) and presentations (PPTX/ODP): out of v1 for now ("not supported"); read-only after stage 8 would need a cell model.
-- Readers in a separate process: only if a PDF ever hangs the interpreter.
-- An English version of the architecture document.
+## Em aberto
+
+- Planilhas (XLSX/ODS/CSV) e apresentações (PPTX/ODP): fora do v1 por enquanto ("não suportado"); só leitura depois da etapa 8 precisaria de um modelo de células.
+- Leitores num processo separado: só se um PDF algum dia travar o interpretador.

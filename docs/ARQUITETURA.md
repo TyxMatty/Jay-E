@@ -1,5 +1,7 @@
 # Jay-E — Arquitetura
 
+**Português** · [English](ARQUITETURA.en.md)
+
 O editor e leitor de arquivos da linha Jay: **documentos** (PDF, DOCX, ODT, RTF, Markdown, LaTeX, texto), **imagens** e **vídeos**, com **conversão** entre formatos. Leve, rápido para abrir e desenhar, e Rust primeiro. Windows primeiro, como o resto da linha.
 
 Escrito em 2026-11-06, a partir do Jay-A 0.1.0 e do Jay-H 0.1.0, e do estudo do LibreOffice, ONLYOFFICE, MarkText, PhotoCraft e Kdenlive em [`REFERENCIAS.md`](REFERENCIAS.md). As etapas 0 a 6 estão prontas. Licença: **MIT** (D1).
@@ -92,7 +94,7 @@ flowchart LR
 Jay-E/
 ├─ package.json                  # npm workspaces: frontend
 ├─ LICENSE                       # MIT
-├─ docs/ARQUITETURA.md, docs/REFERENCIAS.md
+├─ docs/ARQUITETURA.md, docs/REFERENCIAS.md (e os .en.md)
 ├─ crates/jay-docs/              # motor: sem Tauri, testável com cargo test
 │  └─ src/
 │     ├─ lib.rs
@@ -392,4 +394,4 @@ Riscos:
 | D4 ✅ | Editor de Markdown | **(a)**, feito na etapa 2: código + prévia (com os modos Código, Lado a lado e Prévia). WYSIWYG por blocos, como o Muya, depois, se fizer falta |
 | D5 | Leitores num processo à parte | Com o hayro (Rust seguro, pânicos capturados): **(a)** no mesmo processo, uma thread por documento · (b) à parte, só se aparecer PDF que prenda o interpretador |
 | D6 ✅ | De onde vem o TeX | **(d)**, feito na etapa 6: o motor do Tectonic dentro do Jay-E, só os pacotes baixados. Recusadas: (a) baixar o programa do Tectonic (21 MB de executável de fora), (b)/(c) depender do MiKTeX/TeX Live instalado |
-| D7 | Versão em inglês desta documentação | depois, como o `ARQUITETURA.en.md` do Jay-C |
+| D7 ✅ | Versão em inglês desta documentação | feita: o `ARQUITETURA.en.md`, como no Jay-C; esta em português é a referência |

@@ -33,7 +33,7 @@ Instale e atualize o Jay-E pelo **[Jay-H](https://github.com/TyxMatty/Jay-H)**, 
 | [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md) | Arquitetura, fluxos, etapas e o que foi medido |
 | [`docs/REFERENCIAS.md`](docs/REFERENCIAS.md) | Notas do estudo do LibreOffice, ONLYOFFICE, MarkText, PhotoCraft e Kdenlive (só ideias, nenhum código) |
 | [`docs/CONTINUAR.md`](docs/CONTINUAR.md) | Montar num PC novo, como cada parte funciona, estado atual e próximos passos |
-| [`ROADMAP.md`](ROADMAP.md) | O que está feito, o que vem a seguir e as pendências (em inglês) |
+| [`ROADMAP.md`](ROADMAP.md) | O que está feito, o que vem a seguir e as pendências |
 | [`scripts/`](scripts/) | Ferramentas de desenvolvimento: rodar JS no app de verdade, os prints do README |
 
 ## Rodando o app
