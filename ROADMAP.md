@@ -36,8 +36,8 @@ Every stage ends with something testable. The full plan, with the "done when" ch
   - [x] Images, marking up: text, arrows, rectangles and ellipses, blur or pixelate an area (hide data).
   - [x] Images: red eye; remove a spot.
   - [x] Images: Export with a preview and the file size before saving.
-  - [ ] Video, timeline: thumbnails and the audio waveform, zoom, frame by frame (← →).
-  - [ ] Video, razor: split into several pieces, drop the ones in the middle, reorder them; still copied without re-encoding when it can be.
+  - [x] Video, timeline: thumbnails and the audio waveform, zoom, frame by frame (, and .).
+  - [x] Video, razor: split into several pieces, drop the ones in the middle, reorder them; copied without re-encoding.
   - [ ] Video, speed (0.25× to 4×) and reverse; crop the frame, rotate 90°, flip.
   - [ ] Video, sound: volume, mute, fade in and out, save the sound alone, replace it or add music.
   - [ ] Video, fades to and from black, a dissolve between joined pieces; text and a watermark picture over the video, from a time to a time; brightness, contrast, saturation; blur an area.

@@ -220,6 +220,57 @@ unsafe fn run(src: &Path, dst: &Path, options: &ConvertOptions, progress: &mut d
     }
 }
 
+/// The loudest level (0..1) in each of `bins` equal slices of the sound: the timeline's waveform.
+/// Decoded to 8 kHz mono (enough to see where it's loud), never held whole. Empty with no sound.
+pub fn peaks(src: &Path, bins: usize, cancel: &AtomicBool) -> Result<Vec<f32>, VideoError> {
+    const RATE: u32 = 8_000;
+    start()?;
+    let bins = bins.clamp(1, 4_000);
+    unsafe {
+        let reader = MFCreateSourceReaderFromURL(&HSTRING::from(src.as_os_str()), None).map_err(|e| VideoError::Unsupported { what: format!("Windows can't read this file ({})", e.message()) })?;
+        if reader.GetNativeMediaType(FIRST_AUDIO, 0).is_err() {
+            return Ok(vec![]);
+        }
+        let duration = reader.GetPresentationAttribute(MEDIA_SOURCE, &MF_PD_DURATION).ok().and_then(|v: PROPVARIANT| u64::try_from(&v).ok()).unwrap_or(0).max(1) as f64;
+        reader.SetStreamSelection(ALL_STREAMS, false)?;
+        reader.SetStreamSelection(FIRST_AUDIO, true)?;
+        let pcm = MFCreateMediaType()?;
+        pcm.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Audio)?;
+        pcm.SetGUID(&MF_MT_SUBTYPE, &MFAudioFormat_PCM)?;
+        pcm.SetUINT32(&MF_MT_AUDIO_BITS_PER_SAMPLE, 16)?;
+        pcm.SetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND, RATE)?;
+        pcm.SetUINT32(&MF_MT_AUDIO_NUM_CHANNELS, 1)?;
+        reader.SetCurrentMediaType(FIRST_AUDIO, None, &pcm).map_err(at("decoding the audio"))?;
+        let mut out = vec![0f32; bins];
+        loop {
+            if cancel.load(Ordering::Relaxed) {
+                return Err(VideoError::Cancelled);
+            }
+            let (mut flags, mut ts, mut sample) = (0u32, 0i64, None);
+            reader.ReadSample(FIRST_AUDIO, 0, None, Some(&mut flags), Some(&mut ts), Some(&mut sample)).map_err(at("reading"))?;
+            if flags & MF_SOURCE_READERF_ERROR.0 as u32 != 0 {
+                break; // what was read so far still shows
+            }
+            if let Some(sample) = sample {
+                let buffer = sample.ConvertToContiguousBuffer()?;
+                let (mut data, mut len) = (std::ptr::null_mut(), 0u32);
+                buffer.Lock(&mut data, None, Some(&mut len))?;
+                let values = std::slice::from_raw_parts(data as *const i16, len as usize / 2);
+                for (i, &v) in values.iter().enumerate() {
+                    let at = ts as f64 + i as f64 * 1e7 / RATE as f64;
+                    let bin = ((at / duration) * bins as f64).clamp(0.0, (bins - 1) as f64) as usize;
+                    out[bin] = out[bin].max((v as f32 / 32768.0).abs());
+                }
+                buffer.Unlock()?;
+            }
+            if flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32 != 0 {
+                break;
+            }
+        }
+        Ok(out)
+    }
+}
+
 /// The frame at `seconds` (the first one at or after it), as RGBA, full size: (width, height,
 /// pixels, the frame's real time).
 pub fn frame(src: &Path, seconds: f64) -> Result<(u32, u32, Vec<u8>, f64), VideoError> {

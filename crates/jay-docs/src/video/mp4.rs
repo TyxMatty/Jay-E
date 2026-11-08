@@ -106,9 +106,17 @@ impl Movie {
         self.tracks.iter().find(|t| t.video).map(|t| t.samples.iter().filter(|s| s.sync).map(|s| s.dts as f64 / t.timescale as f64).collect()).unwrap_or_default()
     }
 
-    /// Writes `[start, end)` seconds to `dst`, from the key frame at or before `start`. Returns the
-    /// real start and end.
-    pub fn cut(&self, src: &Path, start: f64, end: f64, dst: &Path, cancel: &AtomicBool) -> Result<(f64, f64), VideoError> {
+    /// The first video track's average frame rate, for stepping frame by frame.
+    pub fn frame_rate(&self) -> Option<f64> {
+        let t = self.tracks.iter().find(|t| t.video)?;
+        let last = t.samples.last()?;
+        let seconds = (last.dts + last.duration as u64) as f64 / t.timescale as f64;
+        (seconds > 0.0).then(|| t.samples.len() as f64 / seconds)
+    }
+
+    /// The samples of `[start, end)` seconds, from the key frame at or before `start`, with times
+    /// from 0; and where that really starts, and how long it is.
+    fn piece(&self, start: f64, end: f64) -> (Vec<Track>, f64, f64) {
         let reference = self.tracks.iter().position(|t| t.video).unwrap_or(0);
         let r = &self.tracks[reference];
         let start_sample = r.samples.iter().rposition(|s| s.sync && (s.dts as f64) <= start * r.timescale as f64).unwrap_or(0);
@@ -121,9 +129,43 @@ impl Movie {
             let kept: Vec<Sample> = t.samples.iter().filter(|s| s.dts >= from && s.dts < to).map(|s| Sample { dts: s.dts - from, ..*s }).collect();
             tracks.push(Track { samples: kept, ..t.clone() });
         }
-        let real_end = tracks.iter().map(|t| t.samples.last().map(|s| (s.dts + s.duration as u64) as f64 / t.timescale as f64).unwrap_or(0.0)).fold(0.0, f64::max);
+        let length = tracks.iter().map(|t| t.samples.last().map(|s| (s.dts + s.duration as u64) as f64 / t.timescale as f64).unwrap_or(0.0)).fold(0.0, f64::max);
+        (tracks, t0, length)
+    }
+
+    /// Writes `[start, end)` seconds to `dst`, from the key frame at or before `start`. Returns the
+    /// real start and end.
+    pub fn cut(&self, src: &Path, start: f64, end: f64, dst: &Path, cancel: &AtomicBool) -> Result<(f64, f64), VideoError> {
+        let (tracks, t0, length) = self.piece(start, end);
         write(self, &tracks, &[src], dst, cancel)?;
-        Ok((t0, t0 + real_end))
+        Ok((t0, t0 + length))
+    }
+
+    /// Several pieces of this movie, in the order given, one after another in `dst` (the razor:
+    /// split, drop the pieces in between, reorder). Each starts at the key frame at or before its
+    /// start, as a cut does; returns where each really starts and ends.
+    pub fn splice(&self, src: &Path, pieces: &[(f64, f64)], dst: &Path, cancel: &AtomicBool) -> Result<Vec<(f64, f64)>, VideoError> {
+        if pieces.is_empty() || pieces.iter().any(|(a, b)| !a.is_finite() || !b.is_finite() || b <= a) {
+            return Err(VideoError::Invalid { message: "no pieces to keep".into() });
+        }
+        let mut out: Vec<Track> = self.tracks.iter().map(|t| Track { samples: vec![], ..t.clone() }).collect();
+        let mut offset = 0.0; // seconds where the next piece starts
+        let mut real = vec![];
+        for &(start, end) in pieces {
+            let (tracks, t0, length) = self.piece(start, end);
+            for (o, t) in out.iter_mut().zip(&tracks) {
+                let at = (offset * t.timescale as f64).round() as u64;
+                // The previous piece's last sample lasts until this one (tracks rarely end together).
+                if let Some(last) = o.samples.last_mut() {
+                    last.duration = at.saturating_sub(last.dts).min(u32::MAX as u64) as u32;
+                }
+                o.samples.extend(t.samples.iter().map(|s| Sample { dts: s.dts + at, ..*s }));
+            }
+            offset += length;
+            real.push((t0, t0 + length));
+        }
+        write(self, &out, &[src], dst, cancel)?;
+        Ok(real)
     }
 }
 
@@ -485,6 +527,27 @@ mod tests {
         assert!((j.duration() - 5.0).abs() < 1e-9);
         assert_eq!(j.key_frames(), vec![0.0, 1.0, 2.0, 3.0, 4.0]);
         assert_eq!(video_bytes(&out, &j, 30), video_bytes(&b, &mb, 0));
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn splice_keeps_pieces_in_the_order_given() {
+        let d = dir();
+        let p = sample_file(&d, "a.mp4", 6);
+        let m = Movie::open(&p).unwrap();
+        assert!((m.frame_rate().unwrap() - 10.0).abs() < 1e-9);
+        let out = d.join("spliced.mp4");
+        // 4–5 s first, then 1–2 s (the middle dropped); 1.5 starts back at its key frame, 1.0.
+        let real = m.splice(&p, &[(4.0, 5.0), (1.5, 2.0)], &out, &AtomicBool::new(false)).unwrap();
+        assert_eq!(real, vec![(4.0, 5.0), (1.0, 2.0)]);
+        let s = Movie::open(&out).unwrap();
+        assert_eq!(s.tracks[0].samples.len(), 20);
+        assert!((s.duration() - 2.0).abs() < 1e-9);
+        assert_eq!(s.key_frames(), vec![0.0, 1.0]);
+        assert_eq!(video_bytes(&out, &s, 0), video_bytes(&p, &m, 40), "starts with 4.0 s");
+        assert_eq!(video_bytes(&out, &s, 10), video_bytes(&p, &m, 10), "then 1.0 s");
+        assert!(m.splice(&p, &[], &out, &AtomicBool::new(false)).is_err());
+        assert!(m.splice(&p, &[(2.0, 1.0)], &out, &AtomicBool::new(false)).is_err());
         std::fs::remove_dir_all(&d).unwrap();
     }
 

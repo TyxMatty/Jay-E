@@ -105,6 +105,9 @@ fn main() {
             video::video_info,
             video::video_cut,
             video::video_join,
+            video::video_splice,
+            #[cfg(windows)]
+            video::video_peaks,
             video::video_convert,
             video::video_cancel,
             video::video_frame,

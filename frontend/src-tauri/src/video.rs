@@ -44,6 +44,8 @@ pub struct Info {
     /// MP4/MOV the stream-copy cut can read.
     cuttable: bool,
     key_frames: Vec<f64>,
+    /// Frames per second (MP4/MOV), for stepping frame by frame.
+    frame_rate: Option<f64>,
     /// Why it can't be cut, when it can't.
     reason: Option<String>,
 }
@@ -53,8 +55,8 @@ pub async fn video_info(path: PathBuf, app: AppHandle) -> Result<Info, VideoErro
     opened(&app, &path)?;
     blocking(move || {
         Ok(match Movie::open(&path) {
-            Ok(m) => Info { cuttable: true, key_frames: m.key_frames(), reason: None },
-            Err(e) => Info { cuttable: false, key_frames: vec![], reason: Some(format!("{e:?}")) },
+            Ok(m) => Info { cuttable: true, key_frames: m.key_frames(), frame_rate: m.frame_rate(), reason: None },
+            Err(e) => Info { cuttable: false, key_frames: vec![], frame_rate: None, reason: Some(format!("{e:?}")) },
         })
     })
     .await
@@ -77,6 +79,27 @@ pub async fn video_cut(path: PathBuf, start: f64, end: f64, app: AppHandle) -> R
     let (start, end) = blocking(move || Movie::open(&source)?.cut(&source, start, end, &out, &AtomicBool::new(false))).await?;
     files::announce(&app, vec![target.clone()]);
     Ok(Some(Saved { path: target.to_string_lossy().into_owned(), start, end }))
+}
+
+/// The razor's result: `pieces` (start, end seconds) of one video, in that order, without
+/// re-encoding. Returns where it was saved and where each piece really starts and ends.
+#[tauri::command]
+pub async fn video_splice(path: PathBuf, pieces: Vec<(f64, f64)>, app: AppHandle) -> Result<Option<(String, Vec<(f64, f64)>)>, VideoError> {
+    opened(&app, &path)?;
+    let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_else(|| "mp4".into());
+    let Some(target) = pick_target(&app, &path, format!("{} (edited).{ext}", stem(&path)), &ext) else { return Ok(None) };
+    let (source, out) = (path.clone(), target.clone());
+    let real = blocking(move || Movie::open(&source)?.splice(&source, &pieces, &out, &AtomicBool::new(false))).await?;
+    files::announce(&app, vec![target.clone()]);
+    Ok(Some((target.to_string_lossy().into_owned(), real)))
+}
+
+/// The sound's loudest level in each of `bins` slices, for the timeline's waveform (empty if none).
+#[cfg(windows)]
+#[tauri::command]
+pub async fn video_peaks(path: PathBuf, bins: usize, app: AppHandle) -> Result<Vec<f32>, VideoError> {
+    opened(&app, &path)?;
+    blocking(move || jay_docs::video::mf::peaks(&path, bins, &AtomicBool::new(false))).await
 }
 
 /// Joins `paths` in order (same codecs and settings) without re-encoding.

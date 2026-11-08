@@ -2996,3 +2996,76 @@ fieldset > h3 {
 :root[data-motion='full'] .cv-row {
   animation: panel-in 200ms ease both;
 }
+
+/* ---------- Video timeline (ui/video-editor.js): zoom, waveform, the razor's pieces ---------- */
+.video-strip-scroll {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+/* The strip is now thumbnails over the waveform (it was a grid of thumbnails). */
+.video-strip-scroll > .video-strip {
+  display: block;
+  min-width: 100%;
+  height: auto;
+}
+
+.video-thumbs {
+  display: flex;
+  height: 56px;
+}
+
+.video-thumbs > canvas {
+  flex: 1;
+  min-width: 0;
+}
+
+.video-strip .video-wave {
+  display: block;
+  height: 28px;
+  object-fit: fill;
+  opacity: 0.8;
+}
+
+.video-pieces {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.video-piece {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 2px solid var(--accent);
+}
+
+.video-piece:first-child {
+  border-left: 0;
+}
+
+.video-piece.is-current {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.video-piece.is-dropped {
+  background: repeating-linear-gradient(135deg, rgb(0 0 0 / 0.55) 0 8px, rgb(0 0 0 / 0.35) 8px 16px);
+}
+
+.video-piece-n {
+  position: absolute;
+  top: 4px;
+  left: 6px;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.video-razor {
+  border-top: 1px solid var(--border);
+}

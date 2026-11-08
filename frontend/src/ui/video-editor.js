@@ -14,14 +14,39 @@ export function createVideoEditor(file, url) {
   const video = h('video', { class: 'view-media', src: url, controls: true, preload: 'metadata', 'aria-label': file.name });
   let start = 0;
   let end = null; // null: the end of the video
-  let info = { cuttable: false, keyFrames: [], reason: null };
+  let info = { cuttable: false, keyFrames: [], frameRate: null, reason: null };
+  // The razor: the video's pieces in time order, whether each is kept, and the order they're saved in.
+  let pieces = [];
+  let order = [];
   const duration = () => (Number.isFinite(video.duration) ? video.duration : 0);
 
   // ----- Strip: thumbnails, the marked part, the playhead -----
   const thumbs = Array.from({ length: THUMBS }, () => h('canvas', { width: '160', height: '90', 'aria-hidden': 'true' }));
   const range = h('div', { class: 'video-range' });
   const playhead = h('div', { class: 'video-playhead' });
-  const strip = h('div', { class: 'video-strip', role: 'slider', tabindex: '0', 'aria-label': t('Position'), 'aria-valuemin': '0' }, thumbs, range, playhead);
+  const piecesLayer = h('div', { class: 'video-pieces', 'aria-hidden': 'true' });
+  const wave = h('canvas', { class: 'video-wave', width: '1200', height: '40', 'aria-hidden': 'true' });
+  const strip = h('div', { class: 'video-strip', role: 'slider', tabindex: '0', 'aria-label': t('Position'), 'aria-valuemin': '0' }, h('div', { class: 'video-thumbs' }, thumbs), wave, piecesLayer, range, playhead);
+  // Zoom: the strip wider than its box, scrolled.
+  let zoom = 1;
+  const stripScroll = h('div', { class: 'video-strip-scroll' }, strip);
+  function setZoom(z) {
+    zoom = Math.min(Math.max(z, 1), 32);
+    strip.style.width = `${zoom * 100}%`;
+    // Keep the playhead in view.
+    const x = (video.currentTime / (duration() || 1)) * strip.scrollWidth;
+    stripScroll.scrollLeft = x - stripScroll.clientWidth / 2;
+    zoomLabel.textContent = `${zoom}×`;
+  }
+  stripScroll.addEventListener(
+    'wheel',
+    (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      setZoom(e.deltaY < 0 ? zoom * 2 : zoom / 2);
+    },
+    { passive: false },
+  );
   const pct = (s) => `${(duration() ? (s / duration()) * 100 : 0).toFixed(3)}%`;
   function paintStrip() {
     const e = end ?? duration();
@@ -32,6 +57,84 @@ export function createVideoEditor(file, url) {
     strip.setAttribute('aria-valuenow', String(Math.round(video.currentTime)));
     strip.setAttribute('aria-valuetext', clock(video.currentTime));
     rangeLabel.textContent = t('{start} to {end} · {length}', { start: clock(start), end: clock(e), length: clock(Math.max(e - start, 0)) });
+    paintPieces();
+  }
+  // ----- Pieces (the razor) -----
+  const current = () => pieces.find((p) => video.currentTime >= p.start && video.currentTime < p.end) ?? pieces.at(-1);
+  const piecesLabel = h('span', { class: 'hint', 'aria-live': 'polite' });
+  function paintPieces() {
+    const now = current();
+    const kept = order.filter((p) => p.keep);
+    piecesLayer.replaceChildren(
+      ...pieces.map((p) =>
+        h(
+          'div',
+          { class: `video-piece${p.keep ? '' : ' is-dropped'}${p === now ? ' is-current' : ''}`, style: `left:${pct(p.start)};width:calc(${pct(p.end)} - ${pct(p.start)})` },
+          p.keep && pieces.length > 1 ? h('span', { class: 'video-piece-n' }, String(kept.indexOf(p) + 1)) : null,
+        ),
+      ),
+    );
+    const length = kept.reduce((sum, p) => sum + p.end - p.start, 0);
+    piecesLabel.textContent = pieces.length > 1 ? t('{kept} of {count} pieces kept · {length}', { kept: kept.length, count: pieces.length, length: clock(length) }) : '';
+    saveButton.disabled = !info.cuttable || !kept.length || (pieces.length === 1 && kept.length === 1);
+    for (const b of [dropButton, earlierButton, laterButton]) b.disabled = pieces.length < 2;
+  }
+  /** Splits the piece under the playhead there (nothing within a tenth of a second of its ends). */
+  function split() {
+    const p = current();
+    const at = video.currentTime;
+    if (!p || at - p.start < 0.1 || p.end - at < 0.1) return;
+    const q = { start: at, end: p.end, keep: p.keep };
+    p.end = at;
+    pieces.splice(pieces.indexOf(p) + 1, 0, q);
+    order.splice(order.indexOf(p) + 1, 0, q);
+    paintPieces();
+  }
+  function toggleKeep() {
+    const p = current();
+    if (!p || pieces.length < 2) return;
+    p.keep = !p.keep;
+    paintPieces();
+  }
+  /** Moves the piece under the playhead earlier (-1) or later (+1) in the saved video. */
+  function move(dir) {
+    const p = current();
+    const i = order.indexOf(p);
+    // Past the dropped pieces: they aren't in the saved video, so trading places with one shows nothing.
+    let j = i + dir;
+    while (j >= 0 && j < order.length && !order[j].keep) j += dir;
+    if (i < 0 || j < 0 || j >= order.length) return;
+    [order[i], order[j]] = [order[j], order[i]];
+    paintPieces();
+  }
+  async function savePieces() {
+    const kept = order.filter((p) => p.keep);
+    setStatus(t('Saving the pieces…'));
+    try {
+      const saved = await call('video_splice', { path: file.path, pieces: kept.map((p) => [p.start, p.end]) });
+      setStatus(saved ? t('Saved as {path}', { path: saved[0] }) : '');
+    } catch (e) {
+      setStatus(t("Couldn't save: {error}", { error: errorText(e) }));
+    }
+  }
+  /** One frame back or forward (paused). */
+  function stepFrame(dir) {
+    video.pause();
+    const fps = info.frameRate || 30;
+    video.currentTime = Math.min(Math.max(video.currentTime + dir / fps, 0), duration());
+  }
+  // The sound's waveform under the thumbnails.
+  async function drawWave() {
+    const peaks = await call('video_peaks', { path: file.path, bins: wave.width });
+    const g = wave.getContext('2d');
+    g.clearRect(0, 0, wave.width, wave.height);
+    if (!peaks.length) return;
+    g.fillStyle = getComputedStyle(strip).getPropertyValue('--accent') || '#8b5cf6';
+    const mid = wave.height / 2;
+    peaks.forEach((v, x) => {
+      const hgt = Math.max(1, v * wave.height);
+      g.fillRect(x, mid - hgt / 2, 1, hgt);
+    });
   }
   strip.addEventListener('pointerdown', (e) => {
     const r = strip.getBoundingClientRect();
@@ -87,6 +190,19 @@ export function createVideoEditor(file, url) {
   });
 
   const button = (label, onClick, extra = {}) => h('button', { type: 'button', class: 'btn btn-secondary', onClick, ...extra }, label);
+  const zoomLabel = h('span', { class: 'hint' }, '1×');
+  const dropButton = button(t('Drop / keep piece'), toggleKeep, { title: 'Delete', disabled: true });
+  const earlierButton = button(t('Move earlier'), () => move(-1), { title: 'Alt+←', disabled: true });
+  const laterButton = button(t('Move later'), () => move(1), { title: 'Alt+→', disabled: true });
+  const saveButton = h('button', { type: 'button', class: 'btn', disabled: true, onClick: savePieces, title: t('The kept pieces, in their order, without re-encoding.') }, t('Save pieces…'));
+  const razorBar = h(
+    'div',
+    { class: 'doc-toolbar video-razor', role: 'toolbar', 'aria-label': t('Pieces') },
+    h('span', { class: 'img-tool-group' }, button(t('◀ Frame'), () => stepFrame(-1), { title: ',' }), button(t('Frame ▶'), () => stepFrame(1), { title: '.' })),
+    h('span', { class: 'img-tool-group' }, button(t('Split here'), split, { title: 'S' }), dropButton, earlierButton, laterButton, saveButton),
+    piecesLabel,
+    h('span', { class: 'img-tool-group' }, button('−', () => setZoom(zoom / 2), { 'aria-label': t('Zoom out the timeline') }), zoomLabel, button('+', () => setZoom(zoom * 2), { 'aria-label': t('Zoom in the timeline') })),
+  );
   const toolbar = h(
     'div',
     { class: 'doc-toolbar', role: 'toolbar', 'aria-label': t('Video tools') },
@@ -110,8 +226,11 @@ export function createVideoEditor(file, url) {
   );
 
   video.addEventListener('loadedmetadata', () => {
+    pieces = [{ start: 0, end: duration(), keep: true }];
+    order = [...pieces];
     paintStrip();
     drawThumbs().catch(() => {});
+    drawWave().catch(() => {});
   });
   video.addEventListener('timeupdate', paintStrip);
   video.addEventListener('seeked', paintStrip);
@@ -119,15 +238,22 @@ export function createVideoEditor(file, url) {
     .then((i) => {
       info = i;
       cutButton.disabled = !info.cuttable;
+      paintPieces();
       if (!info.cuttable) cutButton.title = t('Only MP4 and MOV can be cut without re-encoding: convert first.');
     })
     .catch(() => {});
 
-  const root = h('div', { class: 'video-editor' }, toolbar, h('div', { class: 'video-stage' }, video), strip);
+  const root = h('div', { class: 'video-editor' }, toolbar, h('div', { class: 'video-stage' }, video), razorBar, stripScroll);
   root.addEventListener('keydown', (e) => {
-    if (e.ctrlKey || e.altKey || e.target.closest('input, select')) return;
+    if (e.ctrlKey || e.target.closest('input, select')) return;
+    if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return e.preventDefault(), move(e.key === 'ArrowLeft' ? -1 : 1);
+    if (e.altKey) return;
     if (e.key === 'i' || e.key === 'I') markStart();
     else if (e.key === 'o' || e.key === 'O') markEnd();
+    else if (e.key === 's' || e.key === 'S') split();
+    else if (e.key === 'Delete') toggleKeep();
+    else if (e.key === ',') stepFrame(-1);
+    else if (e.key === '.') stepFrame(1);
   });
   return root;
 }
