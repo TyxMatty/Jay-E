@@ -16,6 +16,8 @@ export const cancelConvert = () => call('image_convert_cancel');
 export const imageHistogram = (id) => call('image_histogram', { id });
 /** A `.cube` color look the person picks (checked in Rust): { path, name }, or null if cancelled. */
 export const pickLut = () => call('image_pick_lut');
+/** { bytes, exact, preview }: the file size in `options` (and the compressed look, for lossy formats). */
+export const estimateImage = (id, options) => call('image_estimate', { id, options });
 
 /** The tone and color settings that change nothing (jay_docs::image::Adjust). */
 export const neutralAdjust = () => ({
@@ -124,6 +126,7 @@ export async function imageUrls() {
   base ??= (await core()).convertFileSrc('', 'jaye');
   return {
     view: (id, rev, width) => `${base}img/${id}/${rev}/view/${Math.max(1, Math.round(width))}`,
+    original: (id, width) => `${base}img/${id}/0/original/${Math.max(1, Math.round(width))}`,
     region: (id, rev, x, y, w, h, width) => `${base}img/${id}/${rev}/region/${[x, y, w, h, width].map((n) => Math.max(0, Math.round(n))).join('/')}`,
   };
 }

@@ -4,7 +4,8 @@
 import { h } from './dom.js';
 import { t } from '../core/i18n.js';
 import { settings } from '../store/settings.js';
-import { saveImageAs, convertImages, cancelConvert, FORMATS, LOSSY } from '../core/image.js';
+import { saveImageAs, convertImages, cancelConvert, estimateImage, FORMATS, LOSSY } from '../core/image.js';
+import { formatSize } from '../core/files.js';
 import { openImageFiles } from './files.js';
 
 export function openConvertDialog({ file, id, getEdits, onSaved }) {
@@ -17,6 +18,29 @@ export function openConvertDialog({ file, id, getEdits, onSaved }) {
   const qualityRow = h('div', { class: 'field' }, h('label', { for: 'img-quality' }, t('Quality')), h('div', { class: 'img-slider' }, quality, qualityValue));
   const losslessRow = h('label', { class: 'field img-check' }, lossless, t('Without loss (bigger file)'));
   const status = h('p', { class: 'hint', role: 'status' });
+  // Before saving: the file's size in these options, and (lossy formats) how the compression looks.
+  const sizeLine = h('p', { class: 'hint img-estimate', 'aria-live': 'polite' });
+  const previewImg = h('img', { class: 'img-estimate-preview', alt: t('How the saved image looks'), hidden: true });
+  let estimateToken = 0;
+  let estimateTimer = 0;
+  function estimate() {
+    clearTimeout(estimateTimer);
+    const token = ++estimateToken;
+    sizeLine.textContent = t('Working out the size…');
+    estimateTimer = setTimeout(async () => {
+      try {
+        const e = await estimateImage(id, options());
+        if (token !== estimateToken) return;
+        sizeLine.textContent = e.exact ? t('File size: {size}', { size: formatSize(e.bytes) }) : t('File size: about {size}', { size: formatSize(e.bytes) });
+        previewImg.hidden = !e.preview;
+        if (e.preview) previewImg.src = e.preview;
+      } catch (error) {
+        if (token === estimateToken) sizeLine.textContent = '';
+      }
+    }, 300);
+  }
+  // The same edits on every picture converted (a crop and color made once for a whole set).
+  const sameEdits = h('input', { type: 'checkbox', id: 'img-same-edits' });
   const progress = h('ol', { class: 'img-progress' });
 
   const options = () => ({
@@ -30,6 +54,7 @@ export function openConvertDialog({ file, id, getEdits, onSaved }) {
     qualityRow.hidden = !LOSSY.has(format.value) || (format.value === 'webp' && lossless.checked);
     losslessRow.hidden = format.value !== 'webp';
     settings.update({ imageExport: options() });
+    estimate();
   };
   for (const el of [format, quality, lossless, maxSide]) el.addEventListener('input', syncOptions);
 
@@ -61,7 +86,7 @@ export function openConvertDialog({ file, id, getEdits, onSaved }) {
   });
 
   convertButton.addEventListener('click', async () => {
-    const items = others.map((f) => ({ path: f.path, edits: f.path === file.path ? getEdits() : undefined }));
+    const items = others.map((f) => ({ path: f.path, edits: sameEdits.checked || f.path === file.path ? getEdits() : undefined }));
     const rows = others.map((f) => h('li', {}, h('span', {}, f.name), h('span', { class: 'hint' }, t('Waiting'))));
     progress.replaceChildren(...rows);
     let done = 0;
@@ -98,6 +123,9 @@ export function openConvertDialog({ file, id, getEdits, onSaved }) {
     qualityRow,
     losslessRow,
     h('div', { class: 'field' }, h('label', { for: 'img-max' }, t('Longest side, in pixels (empty: keep the size)')), maxSide),
+    sizeLine,
+    previewImg,
+    h('label', { class: 'field img-check' }, sameEdits, t('Use this image’s edits on all the open images')),
     h('div', { class: 'img-dialog-actions' }, saveButton, convertButton, cancelButton, closeButton),
     status,
     progress,

@@ -270,12 +270,16 @@ pub fn export_to(document: &Document, format: &str, target: &Path) -> Result<(),
 
 /// An image as a data: URL, for the exported HTML file (one file, nothing beside it).
 fn data_url(document: &Document, n: usize) -> String {
-    use std::fmt::Write;
     let Some(img) = document.images.get(n) else { return String::new() };
-    // Base64 by hand: a few lines, no new dependency.
+    format!("data:{};base64,{}", img.mime, base64(&img.bytes))
+}
+
+/// Standard base64, by hand: a few lines, no new dependency. Also for image.rs's previews.
+pub fn base64(bytes: &[u8]) -> String {
+    use std::fmt::Write;
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = format!("data:{};base64,", img.mime);
-    for chunk in img.bytes.chunks(3) {
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
         let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
         let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
         for i in 0..4 {

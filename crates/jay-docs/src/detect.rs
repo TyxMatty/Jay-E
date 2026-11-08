@@ -77,6 +77,11 @@ pub fn detect_bytes(head: &[u8], ext: &str) -> (Kind, &'static str) {
     if at(0, b"BM") && at(6, b"\0\0\0\0") {
         return (Image, "bmp");
     }
+    // Cameras' raw files: most are TIFF inside (and would read as their small preview), others
+    // have their own headers. By extension; the image editor reads them through Windows.
+    if matches!(ext, "cr2" | "cr3" | "nef" | "nrw" | "arw" | "dng" | "orf" | "rw2" | "raf" | "srw" | "pef") {
+        return (Image, "raw");
+    }
     if at(0, b"II*\0") || at(0, b"MM\0*") {
         return (Image, "tiff");
     }
@@ -171,6 +176,8 @@ mod tests {
         assert_eq!(kind(b"\0\0\0\x14ftypqt  \0\0\0\0", ""), (Video, "mov"));
         assert_eq!(kind(b"\0\0\0\x1cftypavif\0\0\0\0", ""), (Image, "avif"));
         assert_eq!(kind(b"\0\0\0\x18ftypheic\0\0\0\0", ""), (Image, "heic"));
+        assert_eq!(kind(b"II*\0\x10\0\0\0CR", "cr2"), (Image, "raw"));
+        assert_eq!(kind(b"II*\0\x08\0\0\0", "tif"), (Image, "tiff"));
     }
 
     #[test]

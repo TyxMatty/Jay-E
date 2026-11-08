@@ -64,6 +64,21 @@ impl From<image::ImageError> for ImageError {
 
 /// Decodes a file, upright (EXIF orientation applied, as the browser does).
 pub fn decode(path: &Path) -> Result<DynamicImage, ImageError> {
+    let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    // HEIC and cameras' raw files: Windows' own readers (the free HEIF and Raw Image Extensions).
+    #[cfg(windows)]
+    if matches!(ext.as_str(), "heic" | "heif" | "cr2" | "cr3" | "nef" | "nrw" | "arw" | "dng" | "orf" | "rw2" | "raf" | "srw" | "pef") {
+        return wic::decode(path);
+    }
+    match decode_rust(path) {
+        // A format the Rust decoders don't read (AVIF, say): Windows may have a reader for it.
+        #[cfg(windows)]
+        Err(ImageError::Unsupported) => wic::decode(path).map_err(|_| ImageError::Unsupported),
+        other => other,
+    }
+}
+
+fn decode_rust(path: &Path) -> Result<DynamicImage, ImageError> {
     let mut reader = ImageReader::open(path)?.with_guessed_format()?;
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_SIDE);
@@ -182,6 +197,10 @@ pub struct Area {
 pub enum AreaKind {
     Blur,
     Pixelate,
+    /// Red eyes (from a flash) turned dark, inside the ellipse of the rectangle.
+    RedEye,
+    /// A spot (dust, a blemish) filled in from what is around it, inside the ellipse.
+    Heal,
     /// A picture laid on top (text the page drew): a PNG, base64.
     Stamp { png: String },
 }
@@ -475,6 +494,22 @@ fn draw_area(image: &mut RgbaImage, area: &Area, ops: &[Op], sizes: &[(u32, u32)
             let blurred = image::imageops::fast_blur(&part, (rw.min(rh) as f32 / 4.0).max(3.0));
             image::imageops::replace(image, &blurred, x0 as i64, y0 as i64);
         }
+        AreaKind::RedEye => {
+            // Only clearly red pixels, by how much red outweighs the rest: the eye's red becomes the
+            // dark of the other two, and skin around it barely changes.
+            for_ellipse(x0, y0, rw, rh, |x, y, edge| {
+                let p = image.get_pixel_mut(x, y);
+                let (r, g, b) = (p[0] as f32, p[1] as f32, p[2] as f32);
+                let other = (g + b) / 2.0;
+                let redness = ((r - other * 1.6) / 60.0).clamp(0.0, 1.0) * edge;
+                if redness > 0.0 {
+                    p[0] = (r + (other * 0.8 - r) * redness).round() as u8;
+                    p[1] = (g * (1.0 - 0.2 * redness)).round() as u8;
+                    p[2] = (b * (1.0 - 0.2 * redness)).round() as u8;
+                }
+            });
+        }
+        AreaKind::Heal => heal(image, x0, y0, rw, rh),
         AreaKind::Pixelate => {
             let block = ((rw.max(rh) as f32 / 12.0).round() as u32).max(4);
             for by in (y0..y1).step_by(block as usize) {
@@ -510,6 +545,200 @@ fn draw_area(image: &mut RgbaImage, area: &Area, ops: &[Op], sizes: &[(u32, u32)
             image::imageops::overlay(image, &scaled, left, top);
         }
     }
+}
+
+/// Calls `f(x, y, edge)` for the pixels inside the ellipse of the rectangle; `edge` fades from 1 to 0
+/// over the outer tenth, so the change has no hard border.
+fn for_ellipse(x0: u32, y0: u32, w: u32, h: u32, mut f: impl FnMut(u32, u32, f32)) {
+    let (cx, cy, rx, ry) = (x0 as f32 + w as f32 / 2.0, y0 as f32 + h as f32 / 2.0, w as f32 / 2.0, h as f32 / 2.0);
+    for y in y0..y0 + h {
+        for x in x0..x0 + w {
+            let d = ((x as f32 + 0.5 - cx) / rx).hypot((y as f32 + 0.5 - cy) / ry);
+            if d < 1.0 {
+                f(x, y, ((1.0 - d) * 10.0).min(1.0));
+            }
+        }
+    }
+}
+
+/// Fills the ellipse of the rectangle from its border inward (the colors around it diffused in,
+/// repeated averaging), then blends it in at the edge. Enough for dust and small blemishes.
+fn heal(image: &mut RgbaImage, x0: u32, y0: u32, w: u32, h: u32) {
+    // shortcut: plain diffusion smooths away texture inside the spot; a patch copied from nearby
+    // would keep it, worth it if people heal big areas.
+    let (iw, ih) = (image.width(), image.height());
+    // The work area: the rectangle and a ring of known pixels around it.
+    let pad = 2;
+    let (ax, ay) = (x0.saturating_sub(pad), y0.saturating_sub(pad));
+    let (bx, by) = ((x0 + w + pad).min(iw), (y0 + h + pad).min(ih));
+    let (aw, ah) = ((bx - ax) as usize, (by - ay) as usize);
+    let (cx, cy, rx, ry) = (x0 as f32 + w as f32 / 2.0, y0 as f32 + h as f32 / 2.0, w as f32 / 2.0, h as f32 / 2.0);
+    let inside = |x: usize, y: usize| ((ax as f32 + x as f32 + 0.5 - cx) / rx).hypot((ay as f32 + y as f32 + 0.5 - cy) / ry) < 1.0;
+    let mut values: Vec<[f32; 4]> = (0..aw * ah).map(|i| image.get_pixel(ax + (i % aw) as u32, ay + (i / aw) as u32).0.map(|v| v as f32)).collect();
+    let unknown: Vec<usize> = (0..aw * ah).filter(|&i| inside(i % aw, i / aw)).collect();
+    // Start from the average of the ring, then relax toward the neighbours' mean.
+    let ring: Vec<[f32; 4]> = (0..aw * ah).filter(|&i| !inside(i % aw, i / aw)).map(|i| values[i]).collect();
+    if ring.is_empty() || unknown.is_empty() {
+        return;
+    }
+    let mean = ring.iter().fold([0.0; 4], |acc, v| std::array::from_fn(|c| acc[c] + v[c] / ring.len() as f32));
+    for &i in &unknown {
+        values[i] = mean;
+    }
+    let rounds = (w.max(h) as usize * 2).clamp(20, 400);
+    for _ in 0..rounds {
+        for &i in &unknown {
+            let (x, y) = (i % aw, i / aw);
+            let mut sum = [0.0f32; 4];
+            let mut n = 0.0;
+            for (dx, dy) in [(-1i64, 0i64), (1, 0), (0, -1), (0, 1)] {
+                let (nx, ny) = (x as i64 + dx, y as i64 + dy);
+                if nx >= 0 && ny >= 0 && (nx as usize) < aw && (ny as usize) < ah {
+                    let v = values[ny as usize * aw + nx as usize];
+                    (0..4).for_each(|c| sum[c] += v[c]);
+                    n += 1.0;
+                }
+            }
+            values[i] = sum.map(|v| v / n);
+        }
+    }
+    for_ellipse(x0, y0, w.min(iw - x0), h.min(ih - y0), |x, y, edge| {
+        let v = values[(y - ay) as usize * aw + (x - ax) as usize];
+        let p = image.get_pixel_mut(x, y);
+        for c in 0..4 {
+            p[c] = (p[c] as f32 + (v[c] - p[c] as f32) * edge).round() as u8;
+        }
+    });
+}
+
+/// Decoding through WIC, Windows Imaging Component: whatever codecs Windows has (HEIC with the HEIF
+/// Image Extensions, cameras' raw files with the Raw Image Extension, AVIF with the AV1 one).
+#[cfg(windows)]
+mod wic {
+    use super::*;
+    use windows::Win32::Foundation::GENERIC_READ;
+    use windows::Win32::Graphics::Imaging::*;
+    use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx};
+    use windows::core::{HSTRING, w};
+
+    /// WINCODEC_ERR_COMPONENTNOTFOUND: Windows has no reader for this format.
+    const NO_CODEC: i32 = 0x88982F50u32 as i32;
+
+    pub fn decode(path: &Path) -> Result<DynamicImage, ImageError> {
+        unsafe { read(path) }.map_err(|e| {
+            if e.code().0 == NO_CODEC {
+                ImageError::Invalid { message: "Windows has no reader for this format: for HEIC, install the free HEIF Image Extensions; for cameras' raw files, the Raw Image Extension (Microsoft Store)".into() }
+            } else {
+                ImageError::Invalid { message: format!("Windows couldn't read it: {}", e.message()) }
+            }
+        })?
+    }
+
+    unsafe fn read(path: &Path) -> windows::core::Result<Result<DynamicImage, ImageError>> {
+        unsafe {
+            // Already initialized on this thread (in any mode) is fine: COM works either way.
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let factory: IWICImagingFactory = CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER)?;
+            let decoder = factory.CreateDecoderFromFilename(&HSTRING::from(path.as_os_str()), None, GENERIC_READ, WICDecodeMetadataCacheOnDemand)?;
+            let frame = decoder.GetFrame(0)?;
+            let (mut width, mut height) = (0u32, 0u32);
+            frame.GetSize(&mut width, &mut height)?;
+            if width == 0 || height == 0 || width > MAX_SIDE || height > MAX_SIDE || width as u64 * height as u64 > MAX_PIXELS {
+                return Ok(Err(ImageError::TooBig { width, height }));
+            }
+            let converter = factory.CreateFormatConverter()?;
+            converter.Initialize(&frame, &GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, None, 0.0, WICBitmapPaletteTypeCustom)?;
+            let mut pixels = vec![0u8; width as usize * height as usize * 4];
+            converter.CopyPixels(std::ptr::null(), width * 4, &mut pixels)?;
+            let Some(rgba) = RgbaImage::from_raw(width, height, pixels) else { return Ok(Err(ImageError::Invalid { message: "pixels".into() })) };
+            let mut image = DynamicImage::ImageRgba8(rgba);
+            // Phones save HEIC photos sideways with an orientation tag, as JPEG does.
+            let orientation = frame.GetMetadataQueryReader().ok().and_then(|q| {
+                let mut value = windows::Win32::System::Com::StructuredStorage::PROPVARIANT::default();
+                q.GetMetadataByName(w!("System.Photo.Orientation"), &mut value).ok()?;
+                u16::try_from(&value).ok()
+            });
+            if let Some(o) = orientation.and_then(|o| image::metadata::Orientation::from_exif(o as u8)) {
+                image.apply_orientation(o);
+            }
+            Ok(Ok(image))
+        }
+    }
+}
+
+/// What a photo's EXIF says about where it came from. Saved files leave it out: `encode` writes
+/// only the pixels.
+#[derive(Debug, Clone, PartialEq, Default, Serialize)]
+pub struct PhotoInfo {
+    /// Make and model, e.g. "Apple iPhone 15".
+    pub camera: Option<String>,
+    /// As the camera wrote it: "2026:08:14 18:30:05".
+    pub taken: Option<String>,
+    /// Latitude and longitude in degrees (south and west negative).
+    pub place: Option<[f64; 2]>,
+}
+
+/// The photo details of the file at `path`; empty when it has none or they can't be read.
+pub fn photo_info(path: &Path) -> PhotoInfo {
+    let exif = ImageReader::open(path).and_then(|r| r.with_guessed_format()).ok().and_then(|r| r.into_decoder().ok()).and_then(|mut d| d.exif_metadata().ok().flatten());
+    exif.map(|e| parse_exif(&e)).unwrap_or_default()
+}
+
+/// The camera, date and GPS position from EXIF data (a TIFF block, maybe after "Exif\0\0").
+/// Every offset is checked: the bytes come from the file.
+fn parse_exif(data: &[u8]) -> PhotoInfo {
+    let tiff = data.strip_prefix(b"Exif\0\0").unwrap_or(data);
+    let le = match tiff.get(..4) {
+        Some(b"II*\0") => true,
+        Some(b"MM\0*") => false,
+        _ => return PhotoInfo::default(),
+    };
+    let u16_at = |o: usize| tiff.get(o..o + 2).map(|b| if le { u16::from_le_bytes([b[0], b[1]]) } else { u16::from_be_bytes([b[0], b[1]]) });
+    let u32_at = |o: usize| tiff.get(o..o + 4).map(|b| if le { u32::from_le_bytes([b[0], b[1], b[2], b[3]]) } else { u32::from_be_bytes([b[0], b[1], b[2], b[3]]) });
+    // The entries of the directory at `offset`: tag → (type, count, where the value is).
+    let entries = |offset: usize| -> Vec<(u16, u16, u32, usize)> {
+        let n = u16_at(offset).unwrap_or(0).min(512) as usize;
+        (0..n)
+            .filter_map(|i| {
+                let e = offset + 2 + i * 12;
+                let (tag, kind, count) = (u16_at(e)?, u16_at(e + 2)?, u32_at(e + 4)?);
+                let size = match kind { 1 | 2 | 7 => 1, 3 => 2, 4 => 4, 5 => 8, _ => 0 } * count as usize;
+                let at = if size <= 4 { e + 8 } else { u32_at(e + 8)? as usize };
+                Some((tag, kind, count, at))
+            })
+            .collect()
+    };
+    let text = |(_, kind, count, at): (u16, u16, u32, usize)| -> Option<String> {
+        if kind != 2 {
+            return None;
+        }
+        let bytes = tiff.get(at..at + (count as usize).min(256))?;
+        let s = String::from_utf8_lossy(bytes).trim_end_matches('\0').trim().to_owned();
+        (!s.is_empty()).then_some(s)
+    };
+    let rational = |at: usize| -> Option<f64> {
+        let (n, d) = (u32_at(at)?, u32_at(at + 4)?);
+        (d != 0).then(|| n as f64 / d as f64)
+    };
+    let ifd0 = entries(u32_at(4).unwrap_or(0) as usize);
+    let find = |list: &[(u16, u16, u32, usize)], tag: u16| list.iter().copied().find(|e| e.0 == tag);
+    let make = find(&ifd0, 0x010F).and_then(text);
+    let model = find(&ifd0, 0x0110).and_then(text);
+    let camera = match (make, model) {
+        // Many models already start with the make ("Canon EOS R6").
+        (Some(m), Some(md)) if md.to_lowercase().starts_with(&m.to_lowercase()) => Some(md),
+        (Some(m), Some(md)) => Some(format!("{m} {md}")),
+        (m, md) => m.or(md),
+    };
+    let pointer = |tag: u16| find(&ifd0, tag).and_then(|e| u32_at(e.3)).map(|o| entries(o as usize));
+    let taken = pointer(0x8769).and_then(|exif| find(&exif, 0x9003).or_else(|| find(&exif, 0x9004)).and_then(text)).or_else(|| find(&ifd0, 0x0132).and_then(text));
+    let place = pointer(0x8825).and_then(|gps| {
+        let degrees = |tag: u16| find(&gps, tag).filter(|e| e.1 == 5 && e.2 == 3).and_then(|e| Some(rational(e.3)? + rational(e.3 + 8)? / 60.0 + rational(e.3 + 16)? / 3600.0));
+        let sign = |tag: u16, negative: &str| if find(&gps, tag).and_then(text).as_deref() == Some(negative) { -1.0 } else { 1.0 };
+        let (lat, lon) = (degrees(2)? * sign(1, "S"), degrees(4)? * sign(3, "W"));
+        ((-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lon)).then_some([lat, lon])
+    });
+    PhotoInfo { camera, taken, place }
 }
 
 /// Standard base64 (with or without padding); None if it isn't.
@@ -1445,6 +1674,129 @@ mod tests {
         // A list from before areas existed still reads.
         let old: Edits = serde_json::from_str(r#"{"ops":[],"adjust":{},"strokes":[]}"#).unwrap();
         assert!(old.areas.is_empty());
+    }
+
+    #[test]
+    fn red_eye_and_spots() {
+        let run = |img: &RgbaImage, kind: AreaKind| apply(&DynamicImage::ImageRgba8(img.clone()), &Edits { areas: vec![Area { at: 0, x: 0.25, y: 0.25, w: 0.5, h: 0.5, kind }], ..Default::default() }).into_rgba8();
+        // A red pupil on skin: the pupil goes dark, the skin stays.
+        let eye = RgbaImage::from_fn(40, 40, |x, y| if (x as i32 - 20).pow(2) + (y as i32 - 20).pow(2) < 25 { Rgba([220, 40, 40, 255]) } else { Rgba([220, 170, 140, 255]) });
+        let fixed = run(&eye, AreaKind::RedEye);
+        let p = fixed.get_pixel(20, 20);
+        assert!(p[0] < 60 && (p[0] as i32 - p[1] as i32) < 20, "{p:?}");
+        assert_eq!(fixed.get_pixel(14, 20).0, [220, 170, 140, 255], "skin inside the area is kept");
+        // A dark spot on a smooth gradient: filled from around it, close to what's there.
+        let grad = RgbaImage::from_fn(40, 40, |x, y| {
+            let v = if (x as i32 - 20).pow(2) + (y as i32 - 20).pow(2) < 16 { 0 } else { (100 + x * 2) as u8 };
+            Rgba([v, v, v, 255])
+        });
+        let healed = run(&grad, AreaKind::Heal);
+        let c = healed.get_pixel(20, 20)[0] as i32;
+        assert!((c - 140).abs() < 12, "the middle looks like its surroundings: {c}");
+        assert_eq!(healed.get_pixel(2, 2)[0], 104, "outside the area is untouched");
+    }
+
+    #[test]
+    fn photo_details_from_exif() {
+        // A little-endian TIFF: IFD0 with Make, Model, an Exif and a GPS pointer.
+        let mut t: Vec<u8> = b"II*\0".to_vec();
+        t.extend(8u32.to_le_bytes());
+        let entry = |t: &mut Vec<u8>, tag: u16, kind: u16, count: u32, value: u32| {
+            t.extend(tag.to_le_bytes());
+            t.extend(kind.to_le_bytes());
+            t.extend(count.to_le_bytes());
+            t.extend(value.to_le_bytes());
+        };
+        // IFD0 at 8: 4 entries → ends at 8 + 2 + 48 + 4 = 62. Data from 62.
+        t.extend(4u16.to_le_bytes());
+        entry(&mut t, 0x010F, 2, 6, 62); // "Canon\0"
+        entry(&mut t, 0x0110, 2, 13, 68); // "Canon EOS R6\0"
+        entry(&mut t, 0x8769, 4, 1, 81);
+        entry(&mut t, 0x8825, 4, 1, 119);
+        t.extend(0u32.to_le_bytes());
+        t.extend(b"Canon\0");
+        t.extend(b"Canon EOS R6\0");
+        // Exif IFD at 81: DateTimeOriginal → data at 99 (20 bytes).
+        t.extend(1u16.to_le_bytes());
+        entry(&mut t, 0x9003, 2, 20, 99);
+        t.extend(0u32.to_le_bytes());
+        t.extend(b"2026:08:14 18:30:05\0");
+        assert_eq!(t.len(), 119);
+        // GPS IFD at 119 (4 entries: rationals from 119 + 54 = 173): S 23° 33' 0", W 46° 38' 0".
+        t.extend(4u16.to_le_bytes());
+        entry(&mut t, 1, 2, 2, u32::from_le_bytes(*b"S\0\0\0"));
+        entry(&mut t, 2, 5, 3, 173);
+        entry(&mut t, 3, 2, 2, u32::from_le_bytes(*b"W\0\0\0"));
+        entry(&mut t, 4, 5, 3, 197);
+        t.extend(0u32.to_le_bytes());
+        for (n, d) in [(23, 1), (33, 1), (0, 1), (46, 1), (38, 1), (0, 1)] {
+            t.extend((n as u32).to_le_bytes());
+            t.extend((d as u32).to_le_bytes());
+        }
+        let mut exif = b"Exif\0\0".to_vec();
+        exif.extend(&t);
+        let info = parse_exif(&exif);
+        assert_eq!(info.camera.as_deref(), Some("Canon EOS R6"));
+        assert_eq!(info.taken.as_deref(), Some("2026:08:14 18:30:05"));
+        let [lat, lon] = info.place.unwrap();
+        assert!((lat + 23.55).abs() < 1e-9 && (lon + 46.6333).abs() < 1e-3);
+        // Cut short or garbage: nothing, no panic.
+        assert_eq!(parse_exif(&exif[..40]), PhotoInfo { camera: None, taken: None, place: None });
+        assert_eq!(parse_exif(b"nothing"), PhotoInfo::default());
+        // Saving leaves the details out: a JPEG written by Jay-E has no EXIF block.
+        let jpeg = encode(&DynamicImage::new_rgb8(8, 8), &EncodeOptions { format: Format::Jpeg, quality: 80, lossless: false, max_side: None }).unwrap();
+        assert!(!jpeg.windows(4).any(|w| w == b"Exif"));
+    }
+
+/// A solid-color HEIC through WIC's encoder (BGRA pixels in).
+    #[cfg(windows)]
+    unsafe fn write_heic(path: &Path, w: u32, h: u32, rgb: [u8; 3]) -> windows::core::Result<()> {
+        use windows::Win32::Graphics::Imaging::*;
+        use windows::Win32::System::Com::*;
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let factory: IWICImagingFactory = CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER)?;
+            let stream = factory.CreateStream()?;
+            stream.InitializeFromFilename(&windows::core::HSTRING::from(path.as_os_str()), 0x40000000)?;
+            let encoder = factory.CreateEncoder(&GUID_ContainerFormatHeif, std::ptr::null())?;
+            encoder.Initialize(&stream, WICBitmapEncoderNoCache)?;
+            let mut frame = None;
+            encoder.CreateNewFrame(&mut frame, std::ptr::null_mut())?;
+            let frame = frame.ok_or_else(windows::core::Error::empty)?;
+            frame.Initialize(None)?;
+            frame.SetSize(w, h)?;
+            let mut format = GUID_WICPixelFormat32bppBGRA;
+            frame.SetPixelFormat(&mut format)?;
+            let pixels: Vec<u8> = (0..w * h).flat_map(|_| [rgb[2], rgb[1], rgb[0], 255]).collect();
+            frame.WritePixels(h, w * 4, &pixels)?;
+            frame.Commit()?;
+            encoder.Commit()
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_reads_what_rust_does_not() {
+        // Through WIC, a PNG gives the same pixels as the Rust decoder.
+        let dir = std::env::temp_dir().join(format!("jaye-wic-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("a.png");
+        RgbaImage::from_fn(5, 3, |x, y| Rgba([x as u8 * 40, y as u8 * 80, 7, 255])).save(&png).unwrap();
+        assert_eq!(wic::decode(&png).unwrap().to_rgba8(), decode(&png).unwrap().to_rgba8());
+        // A real HEIC, written by Windows' own HEIF encoder (where the HEIF and HEVC extensions are
+        // installed), reads back at its size and color, sideways tag and all.
+        let heic = dir.join("c.heic");
+        if unsafe { write_heic(&heic, 64, 32, [200, 40, 30]) }.is_ok() {
+            let read = decode(&heic).unwrap().to_rgba8();
+            assert_eq!(read.dimensions(), (64, 32));
+            let p = read.get_pixel(32, 16);
+            assert!((p[0] as i32 - 200).abs() < 25 && (p[1] as i32 - 40).abs() < 25, "{p:?}");
+        }
+        // Not an image at all, even named .heic: a clear error, not a panic.
+        let fake = dir.join("b.heic");
+        fs::write(&fake, b"not a picture").unwrap();
+        assert!(matches!(decode(&fake), Err(ImageError::Invalid { .. })));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

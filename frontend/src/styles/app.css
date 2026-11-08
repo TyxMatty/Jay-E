@@ -1505,6 +1505,44 @@ fieldset > h3 {
   transform-origin: center;
 }
 
+/* Before/after (ui/image-viewer.js): the original over the picture, fitted, with a label. */
+.img-before {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--surface);
+}
+
+.img-before-label {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.img-details dl {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 2px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.img-details dt {
+  color: var(--text-muted);
+}
+
+.img-details dd {
+  margin: 0;
+}
+
 .img-quad-layer {
   position: absolute;
   inset: 0;
@@ -1565,6 +1603,22 @@ fieldset > h3 {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.img-estimate {
+  margin: 0 0 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The compressed look, shown small: enough to see blocks or smearing at low quality. */
+.img-estimate-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 180px;
+  margin: 0 0 10px;
+  border-radius: var(--radius-sm, 6px);
+  object-fit: contain;
+  background: var(--surface-2);
 }
 
 .img-dialog-actions {

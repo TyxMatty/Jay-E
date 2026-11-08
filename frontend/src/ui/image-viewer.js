@@ -30,7 +30,7 @@ export async function createImageEditor(file, fallback) {
   return buildEditor(file, opened);
 }
 
-function buildEditor(file, { id, width: origW, height: origH }) {
+function buildEditor(file, { id, width: origW, height: origH, details = {} }) {
   const previewScale = Math.min(1, PREVIEW_SIDE / Math.max(origW, origH));
   let edits = noEdits();
   let savedEdits = noEdits();
@@ -66,7 +66,10 @@ function buildEditor(file, { id, width: origW, height: origH }) {
   const drawLayer = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   drawLayer.setAttribute('class', 'img-draw-layer');
   drawLayer.setAttribute('hidden', '');
-  const canvas = h('div', { class: 'img-canvas' }, base, region, cropLayer, drawLayer);
+  // Before and after: the original, with no edits, over the picture while comparing.
+  const before = h('img', { class: 'img-before', alt: t('Before'), draggable: 'false', hidden: true });
+  const beforeLabel = h('span', { class: 'img-before-label', hidden: true }, t('Before'));
+  const canvas = h('div', { class: 'img-canvas' }, base, region, cropLayer, drawLayer, before, beforeLabel);
   const stage = h('div', { class: 'img-stage', tabindex: '0', 'aria-label': file.name }, canvas);
   const sizeLabel = h('span', { class: 'hint' });
   const zoomLabel = h('span', { class: 'hint img-zoom-label', 'aria-live': 'polite' });
@@ -411,6 +414,8 @@ function buildEditor(file, { id, width: origW, height: origH }) {
     ['text', t('Text')],
     ['blur', t('Blur an area')],
     ['pixelate', t('Pixelate an area')],
+    ['redeye', t('Red eye')],
+    ['heal', t('Remove a spot')],
   ];
   const toolButtons = TOOLS.map(([tool, label]) => h('button', { type: 'button', class: 'btn btn-secondary', 'aria-pressed': String(tool === brush.tool), onClick: () => setTool(tool) }, label));
   function setTool(tool) {
@@ -497,7 +502,9 @@ function buildEditor(file, { id, width: origW, height: origH }) {
     drawLayer.setAttribute('viewBox', `0 0 ${w} ${hgt}`);
     const path = document.createElementNS(SVGNS, 'path');
     const freehand = tool === 'pen' || tool === 'highlighter';
-    const hiding = tool === 'blur' || tool === 'pixelate';
+    // Areas Rust changes: hiding (a box) and retouching (an ellipse: red eye, a spot).
+    const retouch = tool === 'redeye' || tool === 'heal';
+    const hiding = tool === 'blur' || tool === 'pixelate' || retouch;
     // The highlighter is wider and lets the picture through; hiding shows a dashed box until Rust's picture comes.
     const stroke = freehand ? strokeOf([frac(e)], tool === 'highlighter' ? 0.4 : 1, tool === 'highlighter' ? 3 : 1) : null;
     const look = hiding ? { fill: 'rgb(0 0 0 / 0.25)', stroke: '#fff', 'stroke-width': String(long / 400), 'stroke-dasharray': `${long / 100} ${long / 150}` } : { fill: 'none', stroke: brush.color, 'stroke-width': String((stroke?.width ?? brush.size / 1000) * long), 'stroke-opacity': String(stroke?.opacity ?? 1), 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
@@ -505,7 +512,7 @@ function buildEditor(file, { id, width: origW, height: origH }) {
     const a = frac(e);
     let b = a;
     const d = (pts) => pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x * w} ${y * hgt}`).join('') + (pts.length === 1 ? 'l0.01 0' : '');
-    const redraw = () => path.setAttribute('d', freehand ? d(stroke.points) : hiding ? d([a, [b[0], a[1]], b, [a[0], b[1]], a]) : d(shapePoints(tool, a, b)));
+    const redraw = () => path.setAttribute('d', freehand ? d(stroke.points) : retouch ? d(shapePoints('ellipse', a, b)) : hiding ? d([a, [b[0], a[1]], b, [a[0], b[1]], a]) : d(shapePoints(tool, a, b)));
     redraw();
     drawLayer.append(path);
     drawLayer.setPointerCapture(e.pointerId);
@@ -755,6 +762,29 @@ function buildEditor(file, { id, width: origW, height: origH }) {
     }
   }, { 'aria-pressed': 'false' });
   const drawButton = iconButton(icons.pen, t('Draw'), () => setDrawing(!drawing), { 'aria-pressed': 'false' });
+  // The photo's details (EXIF) and what saving does with them.
+  const when = details.taken && new Date(details.taken.replace(/^(\d{4}):(\d{2}):(\d{2}) /, '$1-$2-$3T'));
+  const facts = [
+    details.camera && [t('Camera'), details.camera],
+    details.taken && [t('Taken'), when && !Number.isNaN(when.getTime()) ? when.toLocaleString() : details.taken],
+    details.place && [t('Place'), `${Math.abs(details.place[0]).toFixed(5)}° ${details.place[0] < 0 ? 'S' : 'N'}, ${Math.abs(details.place[1]).toFixed(5)}° ${details.place[1] < 0 ? 'W' : 'E'}`],
+  ].filter(Boolean);
+  const detailsPanel = h(
+    'div',
+    { class: 'img-draw img-details', hidden: true, role: 'group', 'aria-label': t('Photo details') },
+    facts.length ? h('dl', {}, facts.flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)])) : h('span', {}, t('This file has no camera, date or place details.')),
+    h('span', { class: 'hint' }, facts.length ? t('Saving as a new file leaves these details out (the place too).') : ''),
+  );
+  const detailsButton = iconButton(icons.info, t('Photo details'), () => {
+    detailsPanel.hidden = !detailsPanel.hidden;
+    detailsButton.setAttribute('aria-pressed', String(!detailsPanel.hidden));
+  }, { 'aria-pressed': 'false' });
+  const compareButton = iconButton(icons.compare, t('Compare with the original'), () => {
+    const on = before.hidden;
+    if (on && urls) before.src = urls.original(id, Math.min(origW * previewScale, Math.ceil((canvas.clientWidth * devicePixelRatio) / 256) * 256 || 1024));
+    before.hidden = beforeLabel.hidden = !on;
+    compareButton.setAttribute('aria-pressed', String(on));
+  }, { 'aria-pressed': 'false' });
   const undoButton = iconButton(icons.undo, t('Undo'), undo, { disabled: true });
   const redoButton = iconButton(icons.redo, t('Redo'), redo, { disabled: true });
   const saveButton = h('button', { type: 'button', class: 'btn', onClick: () => openConvertDialog({ file, id, getEdits: () => edits, onSaved: () => ((savedEdits = structuredClone(edits)), renderButtons()) }) }, t('Save as…'));
@@ -771,7 +801,7 @@ function buildEditor(file, { id, width: origW, height: origH }) {
     'div',
     { class: 'doc-toolbar', role: 'toolbar', 'aria-label': t('Image tools') },
     h('span', { class: 'img-tool-group' }, geometry, cropButton, applyCrop, adjustButton, drawButton),
-    h('span', { class: 'img-tool-group' }, undoButton, redoButton),
+    h('span', { class: 'img-tool-group' }, undoButton, redoButton, compareButton, detailsButton),
     h(
       'span',
       { class: 'img-tool-group img-zoom' },
@@ -796,7 +826,7 @@ function buildEditor(file, { id, width: origW, height: origH }) {
     },
     { passive: false },
   );
-  const root = h('div', { class: 'image-editor' }, toolbar, adjustPanel, drawPanel, cropPanel, stage);
+  const root = h('div', { class: 'image-editor' }, toolbar, adjustPanel, drawPanel, cropPanel, detailsPanel, stage);
   root.addEventListener('keydown', (e) => {
     if (!e.ctrlKey || e.altKey || e.target.closest('input')) return;
     const actions = { z: undo, y: redo, '=': () => zoomStep(1), '+': () => zoomStep(1), '-': () => zoomStep(-1), 0: () => setZoom('fit'), 1: () => setZoom(1) };

@@ -2,6 +2,7 @@
 //! and `jaye://` hands back what to show as fast PNGs:
 //!
 //! - `img/<id>/<rev>/view/<width>`: the whole edited image, from a ≤ 2048 px preview.
+//! - `img/<id>/<rev>/original/<width>`: the preview with no edits, for comparing before and after.
 //! - `img/<id>/<rev>/region/<x>/<y>/<w>/<h>/<width>`: a part of the full-size edited image (in its
 //!   pixels), for zooming into a big photo without sending all of it.
 //!
@@ -71,16 +72,18 @@ pub struct Opened {
     id: u32,
     width: u32,
     height: u32,
+    /// Camera, date and place from the photo's EXIF (saved copies leave them out).
+    details: img::PhotoInfo,
 }
 
 #[tauri::command]
 pub async fn image_open(path: PathBuf, paths: State<'_, OpenedPaths>, images: State<'_, Images>) -> Result<Opened, ImageError> {
     opened(&paths, &path)?;
     let source = path.clone();
-    let (full, preview) = tauri::async_runtime::spawn_blocking(move || {
+    let (full, preview, details) = tauri::async_runtime::spawn_blocking(move || {
         let full = img::decode(&source)?;
         let preview = if full.width().max(full.height()) > PREVIEW_SIDE { full.thumbnail(PREVIEW_SIDE, PREVIEW_SIDE) } else { full.clone() };
-        Ok::<_, ImageError>((full, preview))
+        Ok::<_, ImageError>((full, preview, img::photo_info(&source)))
     })
     .await
     .map_err(|e| ImageError::Io { message: e.to_string() })??;
@@ -88,7 +91,7 @@ pub async fn image_open(path: PathBuf, paths: State<'_, OpenedPaths>, images: St
     let id = images.next.fetch_add(1, Ordering::Relaxed) + 1;
     let open = OpenImage { path, full: Arc::new(full), preview: Arc::new(preview), edits: Edits::default(), rev: 0, edited_preview: None, edited_full: None };
     images.open.lock().unwrap().insert(id, Arc::new(Mutex::new(open)));
-    Ok(Opened { id, width, height })
+    Ok(Opened { id, width, height, details })
 }
 
 #[tauri::command]
@@ -121,6 +124,52 @@ pub fn image_set_edits(id: u32, edits: Edits, images: State<Images>, paths: Stat
     image.edits = edits;
     image.rev += 1;
     Ok(Edited { rev: image.rev, width, height })
+}
+
+#[derive(Serialize)]
+pub struct Estimate {
+    /// The saved file's size: exact when the preview is the picture that will be saved, otherwise
+    /// the preview's, scaled by the pixels.
+    bytes: u64,
+    exact: bool,
+    /// For lossy formats, what the compression does: the preview as encoded, a data: URL.
+    preview: Option<String>,
+}
+
+/// How big the file would be in these options, and how it would look, before saving.
+#[tauri::command]
+pub async fn image_estimate(id: u32, options: EncodeOptions, images: State<'_, Images>) -> Result<Estimate, ImageError> {
+    let image = images.get(id)?;
+    let (edited, (fw, fh)) = {
+        let mut image = image.lock().unwrap();
+        let full = image.edits.size(image.full.width(), image.full.height());
+        (image.edited(false), full)
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = img::encode(&edited, &options)?;
+        // The pixels saved, and the pixels just encoded (both shrunk the way `encode` shrinks).
+        let limit = if options.format == img::Format::Ico { Some(options.max_side.unwrap_or(256).min(256)) } else { options.max_side };
+        let shrink = |w: u32, h: u32| match limit.filter(|&m| m > 0 && w.max(h) > m) {
+            Some(m) => {
+                let k = m as f64 / w.max(h) as f64;
+                ((w as f64 * k).round().max(1.0), (h as f64 * k).round().max(1.0))
+            }
+            None => (w as f64, h as f64),
+        };
+        let (target, encoded) = (shrink(fw, fh), shrink(edited.width(), edited.height()));
+        let exact = target == encoded;
+        let estimate = if exact { bytes.len() as u64 } else { (bytes.len() as f64 * (target.0 * target.1) / (encoded.0 * encoded.1)).round() as u64 };
+        let mime = match options.format {
+            img::Format::Jpeg => Some("image/jpeg"),
+            img::Format::Webp if !options.lossless => Some("image/webp"),
+            img::Format::Avif => Some("image/avif"),
+            _ => None,
+        };
+        let preview = mime.map(|m| format!("data:{m};base64,{}", crate::doc::base64(&bytes)));
+        Ok(Estimate { bytes: estimate, exact, preview })
+    })
+    .await
+    .map_err(|e| ImageError::Io { message: e.to_string() })?
 }
 
 #[derive(Serialize)]
@@ -260,6 +309,10 @@ pub fn respond<R: Runtime>(app: &AppHandle<R>, parts: &[&str]) -> Response<Vec<u
             let edited = image.lock().unwrap().edited(false);
             scale_to(&edited, width)
         }
+        What::Original { width } => {
+            let preview = image.lock().unwrap().preview.clone();
+            scale_to(&preview, width)
+        }
         What::Region { x, y, w, h, width } => {
             let edited = image.lock().unwrap().edited(true);
             let (iw, ih) = edited.dimensions();
@@ -288,6 +341,7 @@ struct Request {
 
 enum What {
     View { width: u32 },
+    Original { width: u32 },
     Region { x: u32, y: u32, w: u32, h: u32, width: u32 },
 }
 
@@ -298,6 +352,7 @@ fn parse(parts: &[&str]) -> Option<Request> {
     n(1)?; // the revision, only for the cache
     let what = match (*parts.get(2)?, parts.len()) {
         ("view", 4) => What::View { width: n(3)? },
+        ("original", 4) => What::Original { width: n(3)? },
         ("region", 8) => What::Region { x: n(3)?, y: n(4)?, w: n(5)?, h: n(6)?, width: n(7)? },
         _ => return None,
     };
@@ -313,6 +368,7 @@ mod tests {
         assert!(matches!(parse(&["3", "7", "view", "800"]), Some(Request { id: 3, what: What::View { width: 800 } })));
         assert!(matches!(parse(&["3", "7", "region", "10", "20", "30", "40", "300"]), Some(Request { what: What::Region { x: 10, y: 20, w: 30, h: 40, width: 300 }, .. })));
         assert!(parse(&["3", "7", "view"]).is_none());
+        assert!(matches!(parse(&["3", "7", "original", "640"]), Some(Request { what: What::Original { width: 640 }, .. })));
         assert!(parse(&["3", "x", "view", "800"]).is_none());
         assert!(parse(&["3", "7", "region", "1", "2", "3", "4"]).is_none());
     }
