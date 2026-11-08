@@ -11,7 +11,7 @@ import { openConvertDialog } from './image-convert.js';
 const PREVIEW_SIDE = 2048; // keep in sync with image.rs
 const PAD = 16;
 const ZOOMS = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 8];
-const noEdits = () => ({ ops: [], adjust: neutralAdjust(), strokes: [] });
+const noEdits = () => ({ ops: [], adjust: neutralAdjust(), strokes: [], areas: [] });
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 /** Resolves to the editor, or to `fallback()` when Rust can't decode the format (AVIF, SVG…). */
@@ -48,7 +48,20 @@ function buildEditor(file, { id, width: origW, height: origH }) {
   const base = h('img', { class: 'img-base', alt: file.name, draggable: 'false' });
   const region = h('img', { class: 'img-region', alt: '', draggable: 'false', hidden: true });
   const cropBox = h('div', { class: 'img-crop-box', tabindex: '0', role: 'group', 'aria-label': t('Crop area: arrows move it, Shift+arrows resize it') });
-  const cropLayer = h('div', { class: 'img-crop', hidden: true }, cropBox);
+  // Perspective crop: the area outside the four corners dimmed, and a handle on each corner.
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const quadShade = document.createElementNS(SVG_NS, 'path');
+  quadShade.setAttribute('class', 'img-quad-shade');
+  quadShade.setAttribute('fill-rule', 'evenodd');
+  const quadSvg = document.createElementNS(SVG_NS, 'svg');
+  quadSvg.setAttribute('class', 'img-quad');
+  quadSvg.setAttribute('viewBox', '0 0 100 100');
+  quadSvg.setAttribute('preserveAspectRatio', 'none');
+  quadSvg.append(quadShade);
+  const CORNERS = [t('Top-left corner'), t('Top-right corner'), t('Bottom-right corner'), t('Bottom-left corner')];
+  const quadHandles = CORNERS.map((label, i) => h('div', { class: 'img-quad-handle', tabindex: '0', role: 'slider', 'aria-label': label, 'data-i': String(i) }));
+  const quadLayer = h('div', { class: 'img-quad-layer', hidden: true }, quadSvg, ...quadHandles);
+  const cropLayer = h('div', { class: 'img-crop', hidden: true }, cropBox, quadLayer);
   // Drawing: the stroke being drawn shows here until Rust's picture (with it in) arrives.
   const drawLayer = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   drawLayer.setAttribute('class', 'img-draw-layer');
@@ -87,6 +100,7 @@ function buildEditor(file, { id, width: origW, height: origH }) {
         if (key !== baseKey) return;
         base.src = next.src;
         drawLayer.replaceChildren(); // the strokes are in the picture now
+        base.style.transform = ''; // and the straightening
       })
       .catch(() => {});
   }
@@ -381,29 +395,37 @@ function buildEditor(file, { id, width: origW, height: origH }) {
   function showCropBox() {
     Object.assign(cropBox.style, { left: `${crop.x * 100}%`, top: `${crop.y * 100}%`, width: `${crop.w * 100}%`, height: `${crop.h * 100}%` });
   }
-  // ----- Drawing (pen and highlighter) -----
-  const brush = { color: '#e5484d', size: 8, highlighter: false };
+  // ----- Drawing and marking up: pen, highlighter, arrows and shapes, text, hiding an area -----
+  const brush = { color: '#e5484d', size: 8, tool: 'pen' };
   let drawing = false;
   const colorInput = h('input', { type: 'color', value: brush.color, 'aria-label': t('Brush color'), title: t('Brush color') });
   colorInput.addEventListener('input', () => (brush.color = colorInput.value));
   const sizeInput = h('input', { type: 'range', min: '1', max: '60', value: String(brush.size), id: `img-brush-${id}` });
   sizeInput.addEventListener('input', () => (brush.size = Number(sizeInput.value)));
-  const penButton = h('button', { type: 'button', class: 'btn btn-secondary', 'aria-pressed': 'true', onClick: () => setHighlighter(false) }, t('Pen'));
-  const markerButton = h('button', { type: 'button', class: 'btn btn-secondary', 'aria-pressed': 'false', onClick: () => setHighlighter(true) }, t('Highlighter'));
-  function setHighlighter(on) {
-    brush.highlighter = on;
-    penButton.setAttribute('aria-pressed', String(!on));
-    markerButton.setAttribute('aria-pressed', String(on));
+  const TOOLS = [
+    ['pen', t('Pen')],
+    ['highlighter', t('Highlighter')],
+    ['arrow', t('Arrow')],
+    ['rect', t('Rectangle')],
+    ['ellipse', t('Ellipse')],
+    ['text', t('Text')],
+    ['blur', t('Blur an area')],
+    ['pixelate', t('Pixelate an area')],
+  ];
+  const toolButtons = TOOLS.map(([tool, label]) => h('button', { type: 'button', class: 'btn btn-secondary', 'aria-pressed': String(tool === brush.tool), onClick: () => setTool(tool) }, label));
+  function setTool(tool) {
+    brush.tool = tool;
+    TOOLS.forEach(([name], i) => toolButtons[i].setAttribute('aria-pressed', String(name === tool)));
   }
-  const clearDrawing = h('button', { type: 'button', class: 'btn btn-secondary', onClick: () => edits.strokes.length && change((e) => (e.strokes = [])) }, t('Clear drawing'));
+  const clearDrawing = h('button', { type: 'button', class: 'btn btn-secondary', onClick: () => (edits.strokes.length || edits.areas.length) && change((e) => ((e.strokes = []), (e.areas = []))) }, t('Clear drawing'));
   const drawPanel = h(
     'div',
     { class: 'img-draw', hidden: true, role: 'group', 'aria-label': t('Draw') },
-    h('div', { class: 'img-draw-modes', role: 'group', 'aria-label': t('Brush') }, penButton, markerButton),
+    h('div', { class: 'img-draw-modes', role: 'group', 'aria-label': t('Brush') }, toolButtons),
     h('label', { class: 'img-draw-color' }, colorInput, t('Color')),
     h('div', { class: 'img-slider' }, h('label', { for: sizeInput.id }, t('Size')), sizeInput),
     clearDrawing,
-    h('span', { class: 'hint' }, t('Drag on the picture to draw. Ctrl+Z takes back a stroke.')),
+    h('span', { class: 'hint' }, t('Drag on the picture to draw; click to write. Ctrl+Z takes back the last one.')),
   );
   function setDrawing(on) {
     drawing = on;
@@ -412,18 +434,78 @@ function buildEditor(file, { id, width: origW, height: origH }) {
     drawLayer.toggleAttribute('hidden', !on);
     renderButtons();
   }
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const round5 = (v) => Math.round(v * 1e5) / 1e5;
+  /** A stroke made of these points (fractions), in the brush's color and size. */
+  const strokeOf = (points, opacity = 1, scale = 1) => ({ at: edits.ops.length, color: brush.color, width: (brush.size * scale) / 1000, opacity, points: points.map(([x, y]) => [round5(x), round5(y)]) });
+  /** The outline of a shape from corner `a` to corner `b` (fractions), as a line to draw. */
+  function shapePoints(tool, a, b) {
+    if (tool === 'rect') return [a, [b[0], a[1]], b, [a[0], b[1]], a];
+    if (tool === 'ellipse') {
+      const [cx, cy, rx, ry] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, Math.abs(b[0] - a[0]) / 2, Math.abs(b[1] - a[1]) / 2];
+      return Array.from({ length: 73 }, (_, i) => [cx + rx * Math.cos((i / 72) * 2 * Math.PI), cy + ry * Math.sin((i / 72) * 2 * Math.PI)]);
+    }
+    // An arrow: the line, then its head, drawn in pixels so it isn't squashed on a long picture.
+    const [ax, ay, bx, by] = [a[0] * w, a[1] * hgt, b[0] * w, b[1] * hgt];
+    const angle = Math.atan2(by - ay, bx - ax);
+    const head = Math.max((brush.size / 1000) * Math.max(w, hgt) * 4, Math.hypot(bx - ax, by - ay) * 0.18);
+    const wing = (side) => [(bx - head * Math.cos(angle + side * 0.5)) / w, (by - head * Math.sin(angle + side * 0.5)) / hgt];
+    return [a, b, wing(1), b, wing(-1)];
+  }
+  /** Writes `text` where it was clicked: drawn by the page (its font), laid on the picture by Rust. */
+  function placeText(at) {
+    const long = Math.max(w, hgt);
+    const fontPx = Math.max(8, (brush.size / 1000) * long * 4);
+    const input = h('input', { type: 'text', class: 'img-text-input', 'aria-label': t('Text'), style: `left:${at[0] * 100}%;top:${at[1] * 100}%;font-size:${fontPx * scale}px;color:${brush.color}` });
+    canvas.append(input);
+    input.focus();
+    let done = false;
+    const finish = (keep) => {
+      if (done) return;
+      done = true;
+      const text = input.value.trim();
+      input.remove();
+      if (!keep || !text) return;
+      const c = document.createElement('canvas');
+      const g = c.getContext('2d');
+      const font = `600 ${fontPx}px ${getComputedStyle(document.body).fontFamily}`;
+      g.font = font;
+      c.width = Math.max(1, Math.ceil(g.measureText(text).width + fontPx * 0.2));
+      c.height = Math.ceil(fontPx * 1.3);
+      g.font = font;
+      g.fillStyle = brush.color;
+      g.textBaseline = 'alphabetic';
+      g.fillText(text, fontPx * 0.1, fontPx);
+      const png = c.toDataURL('image/png').split(',')[1];
+      change((e) => e.areas.push({ at: e.ops.length, x: round5(at[0]), y: round5(at[1]), w: round5(c.width / w), h: round5(c.height / hgt), kind: 'stamp', png }));
+    };
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') finish(true);
+      if (e.key === 'Escape') finish(false);
+      e.stopPropagation();
+    });
+    input.addEventListener('blur', () => finish(true));
+  }
   drawLayer.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
     const r = canvas.getBoundingClientRect();
     const frac = (ev) => [Math.min(Math.max((ev.clientX - r.left) / r.width, 0), 1), Math.min(Math.max((ev.clientY - r.top) / r.height, 0), 1)];
+    const tool = brush.tool;
+    if (tool === 'text') return void setTimeout(() => placeText(frac(e)));
     const long = Math.max(w, hgt);
-    // Width as a part of the longer side (the highlighter is wider and lets the picture through).
-    const stroke = { at: edits.ops.length, color: brush.color, width: (brush.size * (brush.highlighter ? 3 : 1)) / 1000, opacity: brush.highlighter ? 0.4 : 1, points: [frac(e)] };
     drawLayer.setAttribute('viewBox', `0 0 ${w} ${hgt}`);
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    Object.entries({ fill: 'none', stroke: stroke.color, 'stroke-width': String(stroke.width * long), 'stroke-opacity': String(stroke.opacity), 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }).forEach(([k, v]) => path.setAttribute(k, v));
-    const redraw = () => path.setAttribute('d', stroke.points.map(([x, y], i) => `${i ? 'L' : 'M'}${x * w} ${y * hgt}`).join('') + (stroke.points.length === 1 ? 'l0.01 0' : ''));
+    const path = document.createElementNS(SVGNS, 'path');
+    const freehand = tool === 'pen' || tool === 'highlighter';
+    const hiding = tool === 'blur' || tool === 'pixelate';
+    // The highlighter is wider and lets the picture through; hiding shows a dashed box until Rust's picture comes.
+    const stroke = freehand ? strokeOf([frac(e)], tool === 'highlighter' ? 0.4 : 1, tool === 'highlighter' ? 3 : 1) : null;
+    const look = hiding ? { fill: 'rgb(0 0 0 / 0.25)', stroke: '#fff', 'stroke-width': String(long / 400), 'stroke-dasharray': `${long / 100} ${long / 150}` } : { fill: 'none', stroke: brush.color, 'stroke-width': String((stroke?.width ?? brush.size / 1000) * long), 'stroke-opacity': String(stroke?.opacity ?? 1), 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
+    Object.entries(look).forEach(([k, v]) => path.setAttribute(k, v));
+    const a = frac(e);
+    let b = a;
+    const d = (pts) => pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x * w} ${y * hgt}`).join('') + (pts.length === 1 ? 'l0.01 0' : '');
+    const redraw = () => path.setAttribute('d', freehand ? d(stroke.points) : hiding ? d([a, [b[0], a[1]], b, [a[0], b[1]], a]) : d(shapePoints(tool, a, b)));
     redraw();
     drawLayer.append(path);
     drawLayer.setPointerCapture(e.pointerId);
@@ -432,33 +514,152 @@ function buildEditor(file, { id, width: origW, height: origH }) {
       // A point every 2 screen pixels is smooth enough and keeps the list small.
       if (Math.hypot(ev.clientX - last[0], ev.clientY - last[1]) < 2) return;
       last = [ev.clientX, ev.clientY];
-      stroke.points.push(frac(ev));
+      if (freehand) stroke.points.push(frac(ev));
+      else b = frac(ev);
       redraw();
     };
     const up = () => {
       drawLayer.removeEventListener('pointermove', move);
       drawLayer.removeEventListener('pointerup', up);
       drawLayer.removeEventListener('pointercancel', up);
-      stroke.points = stroke.points.map(([x, y]) => [Math.round(x * 1e5) / 1e5, Math.round(y * 1e5) / 1e5]);
-      change((ed) => ed.strokes.push(stroke));
+      if (freehand) {
+        stroke.points = stroke.points.map(([x, y]) => [round5(x), round5(y)]);
+        return change((ed) => ed.strokes.push(stroke));
+      }
+      // A click without a drag makes nothing.
+      if (Math.abs(b[0] - a[0]) * w < 3 && Math.abs(b[1] - a[1]) * hgt < 3) return path.remove();
+      if (hiding) {
+        const box = { at: edits.ops.length, x: round5(Math.min(a[0], b[0])), y: round5(Math.min(a[1], b[1])), w: round5(Math.abs(b[0] - a[0])), h: round5(Math.abs(b[1] - a[1])), kind: tool };
+        return change((ed) => ed.areas.push(box));
+      }
+      change((ed) => ed.strokes.push(strokeOf(shapePoints(tool, a, b))));
     };
     drawLayer.addEventListener('pointermove', move);
     drawLayer.addEventListener('pointerup', up);
     drawLayer.addEventListener('pointercancel', up);
   });
 
+  // The crop bar: a shape to keep, straightening, and the perspective crop.
+  let ratio = null; // width ÷ height in pixels, or null for any shape
+  const RATIOS = [['free', t('Free')], ['original', t('Original')], ['1:1', '1:1'], ['4:3', '4:3'], ['3:4', '3:4'], ['3:2', '3:2'], ['16:9', '16:9'], ['9:16', '9:16']];
+  const ratioSelect = h('select', { class: 'input', id: `img-ratio-${id}` }, RATIOS.map(([value, label]) => h('option', { value }, label)));
+  /** The crop area's height (in fractions) for a width (in fractions), keeping `ratio`. */
+  const heightFor = (fw) => (fw * w) / (ratio * hgt);
+  ratioSelect.addEventListener('change', () => {
+    const v = ratioSelect.value;
+    ratio = v === 'free' ? null : v === 'original' ? w / hgt : Number(v.split(':')[0]) / Number(v.split(':')[1]);
+    if (!ratio || !crop) return;
+    // The largest area of that shape, centered.
+    let fw = 1;
+    let fh = heightFor(1);
+    if (fh > 1) [fw, fh] = [1 / fh, 1];
+    crop = { x: (1 - fw) / 2, y: (1 - fh) / 2, w: fw, h: fh };
+    showCropBox();
+  });
+  const straightenInput = h('input', { type: 'range', min: '-45', max: '45', step: '0.5', value: '0', id: `img-straighten-${id}` });
+  const straightenValue = h('output', { class: 'hint', for: straightenInput.id }, '0°');
+  /** How much a turn of `deg` shrinks the picture (the largest same-shaped part inside). */
+  const shrink = (deg) => {
+    const a = Math.abs((deg * Math.PI) / 180);
+    return Math.min(w / (w * Math.cos(a) + hgt * Math.sin(a)), hgt / (w * Math.sin(a) + hgt * Math.cos(a)));
+  };
+  // The turn already in the list (the last operation), which straightening again replaces.
+  const lastTurn = () => (edits.ops.at(-1)?.op === 'rotate' ? edits.ops.at(-1).degrees : 0);
+  straightenInput.addEventListener('input', () => {
+    const deg = Number(straightenInput.value);
+    straightenValue.textContent = `${deg}°`;
+    // Shown at once by turning the picture on screen; Rust's version follows on release.
+    const rel = deg - lastTurn();
+    base.style.transform = `rotate(${rel}deg) scale(${1 / shrink(rel)})`;
+    region.hidden = true;
+    canvas.classList.add('is-straightening');
+  });
+  straightenInput.addEventListener('change', () => {
+    canvas.classList.remove('is-straightening');
+    const deg = Number(straightenInput.value);
+    if (deg === lastTurn()) return (base.style.transform = '');
+    change((e) => {
+      if (e.ops.at(-1)?.op === 'rotate') {
+        if (deg === 0) e.ops.pop();
+        else e.ops.at(-1).degrees = deg;
+      } else e.ops.push({ op: 'rotate', degrees: deg });
+    });
+  });
+  let quad = null; // the perspective corners, in fractions, or null
+  const perspectiveButton = h('button', { type: 'button', class: 'btn btn-secondary', 'aria-pressed': 'false', onClick: () => setPerspective(!quad) }, t('Perspective'));
+  function showQuad() {
+    const pts = quad.map(([x, y]) => `${x * 100} ${y * 100}`);
+    quadShade.setAttribute('d', `M0 0H100V100H0Z M${pts.join(' L')}Z`);
+    quadHandles.forEach((el, i) => Object.assign(el.style, { left: `${quad[i][0] * 100}%`, top: `${quad[i][1] * 100}%` }));
+  }
+  function setPerspective(on) {
+    quad = on ? [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]] : null;
+    perspectiveButton.setAttribute('aria-pressed', String(on));
+    quadLayer.hidden = !on;
+    cropBox.hidden = on;
+    ratioSelect.disabled = on;
+    if (on) {
+      showQuad();
+      quadHandles[0].focus();
+    } else cropBox.focus();
+  }
+  quadHandles.forEach((el, i) => {
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const r = canvas.getBoundingClientRect();
+      el.setPointerCapture(e.pointerId);
+      const move = (ev) => {
+        quad[i] = [Math.min(Math.max((ev.clientX - r.left) / r.width, 0), 1), Math.min(Math.max((ev.clientY - r.top) / r.height, 0), 1)];
+        showQuad();
+      };
+      const up = () => {
+        el.removeEventListener('pointermove', move);
+        el.removeEventListener('pointerup', up);
+      };
+      el.addEventListener('pointermove', move);
+      el.addEventListener('pointerup', up);
+    });
+    // Arrows move the corner (Ctrl: further), Enter applies, Escape cancels.
+    el.addEventListener('keydown', (e) => {
+      const step = e.ctrlKey ? 0.05 : 0.005;
+      const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+      if (e.key === 'Enter') return e.preventDefault(), endCrop(true);
+      if (e.key === 'Escape') return e.preventDefault(), endCrop(false);
+      if (!d) return;
+      e.preventDefault();
+      quad[i] = [Math.min(Math.max(quad[i][0] + d[0], 0), 1), Math.min(Math.max(quad[i][1] + d[1], 0), 1)];
+      showQuad();
+    });
+  });
+  const cropPanel = h(
+    'div',
+    { class: 'img-draw img-crop-bar', hidden: true, role: 'group', 'aria-label': t('Crop') },
+    h('div', { class: 'img-slider' }, h('label', { for: ratioSelect.id }, t('Shape')), ratioSelect),
+    h('div', { class: 'img-slider' }, h('label', { for: straightenInput.id }, t('Straighten')), straightenInput, straightenValue),
+    perspectiveButton,
+    h('span', { class: 'hint' }, t('Drag on the picture for the area; Perspective: drag the four corners onto the page’s corners.')),
+  );
+
   function startCrop() {
     if (drawing) setDrawing(false);
     crop = { x: 0.1, y: 0.1, w: 0.8, h: 0.8 };
+    if (ratio) ratioSelect.dispatchEvent(new Event('change'));
+    straightenInput.value = String(lastTurn());
+    straightenValue.textContent = `${lastTurn()}°`;
     cropLayer.hidden = false;
+    cropPanel.hidden = false;
     showCropBox();
     renderButtons();
     cropBox.focus();
   }
   function endCrop(applyIt) {
-    if (applyIt && crop && (crop.w < 0.999 || crop.h < 0.999)) pushOp({ op: 'crop', ...crop });
+    if (applyIt && quad) pushOp({ op: 'perspective', corners: quad.map(([x, y]) => [Math.round(x * 1e5) / 1e5, Math.round(y * 1e5) / 1e5]) });
+    else if (applyIt && crop && (crop.w < 0.999 || crop.h < 0.999)) pushOp({ op: 'crop', ...crop });
+    if (quad) setPerspective(false);
     crop = null;
     cropLayer.hidden = true;
+    cropPanel.hidden = true;
     renderButtons();
     stage.focus();
   }
@@ -473,7 +674,15 @@ function buildEditor(file, { id, width: origW, height: origH }) {
     const move = (ev) => {
       const x1 = fx(ev.clientX);
       const y1 = fy(ev.clientY);
-      crop = { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.max(Math.abs(x1 - x0), 0.002), h: Math.max(Math.abs(y1 - y0), 0.002) };
+      let cw = Math.abs(x1 - x0);
+      let ch = Math.abs(y1 - y0);
+      if (ratio) {
+        // The width leads; the height follows the shape, and both stop at the picture's edge.
+        const room = y1 >= y0 ? 1 - y0 : y0;
+        ch = heightFor(cw);
+        if (ch > room) [cw, ch] = [(cw * room) / ch, room];
+      }
+      crop = { x: x1 >= x0 ? x0 : x0 - cw, y: y1 >= y0 ? y0 : y0 - ch, w: Math.max(cw, 0.002), h: Math.max(ch, 0.002) };
       showCropBox();
     };
     const up = () => {
@@ -492,7 +701,12 @@ function buildEditor(file, { id, width: origW, height: origH }) {
     if (e.key === 'Escape') return e.preventDefault(), endCrop(false);
     if (!d) return;
     e.preventDefault();
-    if (e.shiftKey) {
+    if (e.shiftKey && ratio) {
+      // One size for both sides, in the shape chosen.
+      const grow = d[0] || -d[1];
+      const fw = Math.min(Math.max(crop.w + grow, 0.01), 1 - crop.x, ((1 - crop.y) * ratio * hgt) / w);
+      [crop.w, crop.h] = [fw, heightFor(fw)];
+    } else if (e.shiftKey) {
       crop.w = Math.min(Math.max(crop.w + d[0], 0.01), 1 - crop.x);
       crop.h = Math.min(Math.max(crop.h + d[1], 0.01), 1 - crop.y);
     } else {
@@ -582,7 +796,7 @@ function buildEditor(file, { id, width: origW, height: origH }) {
     },
     { passive: false },
   );
-  const root = h('div', { class: 'image-editor' }, toolbar, adjustPanel, drawPanel, stage);
+  const root = h('div', { class: 'image-editor' }, toolbar, adjustPanel, drawPanel, cropPanel, stage);
   root.addEventListener('keydown', (e) => {
     if (!e.ctrlKey || e.altKey || e.target.closest('input')) return;
     const actions = { z: undo, y: redo, '=': () => zoomStep(1), '+': () => zoomStep(1), '-': () => zoomStep(-1), 0: () => setZoom('fit'), 1: () => setZoom(1) };
