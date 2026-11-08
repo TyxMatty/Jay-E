@@ -32,7 +32,8 @@ Every stage ends with something testable. The full plan, with the "done when" ch
   - [x] Jay brand: the welcome tour and the dialogs animate as in Jay-C (Settings › Appearance › Animations, On/Off), and the accent glow of every Jay app sits behind the sections.
   - [x] Images, filters: sharpen, blur, reduce noise, vignette; color looks from `.cube` LUT files.
   - [ ] Images, geometry: straighten (free rotation with a grid), crop to a ratio (1:1, 4:3, 16:9…), perspective crop.
-  - [ ] Images, marking up: text, arrows, rectangles and ellipses, pen and highlighter, blur or pixelate an area (hide data); red eye; remove a spot (clone).
+  - [x] Images, drawing: pen and highlighter in any color and size, over the picture; each stroke undoes on its own and follows later rotations, flips and crops.
+  - [ ] Images, marking up: text, arrows, rectangles and ellipses, blur or pixelate an area (hide data); red eye; remove a spot (clone).
   - [ ] Images: Export with a preview and the file size before saving.
   - [ ] Video, timeline: thumbnails and the audio waveform, zoom, frame by frame (← →).
   - [ ] Video, razor: split into several pieces, drop the ones in the middle, reorder them; still copied without re-encoding when it can be.

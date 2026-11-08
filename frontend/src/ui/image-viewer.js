@@ -11,7 +11,7 @@ import { openConvertDialog } from './image-convert.js';
 const PREVIEW_SIDE = 2048; // keep in sync with image.rs
 const PAD = 16;
 const ZOOMS = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 8];
-const noEdits = () => ({ ops: [], adjust: neutralAdjust() });
+const noEdits = () => ({ ops: [], adjust: neutralAdjust(), strokes: [] });
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 /** Resolves to the editor, or to `fallback()` when Rust can't decode the format (AVIF, SVG…). */
@@ -49,7 +49,11 @@ function buildEditor(file, { id, width: origW, height: origH }) {
   const region = h('img', { class: 'img-region', alt: '', draggable: 'false', hidden: true });
   const cropBox = h('div', { class: 'img-crop-box', tabindex: '0', role: 'group', 'aria-label': t('Crop area: arrows move it, Shift+arrows resize it') });
   const cropLayer = h('div', { class: 'img-crop', hidden: true }, cropBox);
-  const canvas = h('div', { class: 'img-canvas' }, base, region, cropLayer);
+  // Drawing: the stroke being drawn shows here until Rust's picture (with it in) arrives.
+  const drawLayer = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  drawLayer.setAttribute('class', 'img-draw-layer');
+  drawLayer.setAttribute('hidden', '');
+  const canvas = h('div', { class: 'img-canvas' }, base, region, cropLayer, drawLayer);
   const stage = h('div', { class: 'img-stage', tabindex: '0', 'aria-label': file.name }, canvas);
   const sizeLabel = h('span', { class: 'hint' });
   const zoomLabel = h('span', { class: 'hint img-zoom-label', 'aria-live': 'polite' });
@@ -77,7 +81,14 @@ function buildEditor(file, { id, width: origW, height: origH }) {
     const next = new Image();
     next.src = urls.view(id, rev, wanted);
     // Swap once decoded: no flash of an empty image while the new one loads.
-    next.decode().then(() => key === baseKey && (base.src = next.src)).catch(() => {});
+    next
+      .decode()
+      .then(() => {
+        if (key !== baseKey) return;
+        base.src = next.src;
+        drawLayer.replaceChildren(); // the strokes are in the picture now
+      })
+      .catch(() => {});
   }
 
   // Zoomed past the preview: a sharp region of the full image for the visible part.
@@ -370,7 +381,74 @@ function buildEditor(file, { id, width: origW, height: origH }) {
   function showCropBox() {
     Object.assign(cropBox.style, { left: `${crop.x * 100}%`, top: `${crop.y * 100}%`, width: `${crop.w * 100}%`, height: `${crop.h * 100}%` });
   }
+  // ----- Drawing (pen and highlighter) -----
+  const brush = { color: '#e5484d', size: 8, highlighter: false };
+  let drawing = false;
+  const colorInput = h('input', { type: 'color', value: brush.color, 'aria-label': t('Brush color'), title: t('Brush color') });
+  colorInput.addEventListener('input', () => (brush.color = colorInput.value));
+  const sizeInput = h('input', { type: 'range', min: '1', max: '60', value: String(brush.size), id: `img-brush-${id}` });
+  sizeInput.addEventListener('input', () => (brush.size = Number(sizeInput.value)));
+  const penButton = h('button', { type: 'button', class: 'btn btn-secondary', 'aria-pressed': 'true', onClick: () => setHighlighter(false) }, t('Pen'));
+  const markerButton = h('button', { type: 'button', class: 'btn btn-secondary', 'aria-pressed': 'false', onClick: () => setHighlighter(true) }, t('Highlighter'));
+  function setHighlighter(on) {
+    brush.highlighter = on;
+    penButton.setAttribute('aria-pressed', String(!on));
+    markerButton.setAttribute('aria-pressed', String(on));
+  }
+  const clearDrawing = h('button', { type: 'button', class: 'btn btn-secondary', onClick: () => edits.strokes.length && change((e) => (e.strokes = [])) }, t('Clear drawing'));
+  const drawPanel = h(
+    'div',
+    { class: 'img-draw', hidden: true, role: 'group', 'aria-label': t('Draw') },
+    h('div', { class: 'img-draw-modes', role: 'group', 'aria-label': t('Brush') }, penButton, markerButton),
+    h('label', { class: 'img-draw-color' }, colorInput, t('Color')),
+    h('div', { class: 'img-slider' }, h('label', { for: sizeInput.id }, t('Size')), sizeInput),
+    clearDrawing,
+    h('span', { class: 'hint' }, t('Drag on the picture to draw. Ctrl+Z takes back a stroke.')),
+  );
+  function setDrawing(on) {
+    drawing = on;
+    if (on && crop) endCrop(false);
+    drawPanel.hidden = !on;
+    drawLayer.toggleAttribute('hidden', !on);
+    renderButtons();
+  }
+  drawLayer.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const r = canvas.getBoundingClientRect();
+    const frac = (ev) => [Math.min(Math.max((ev.clientX - r.left) / r.width, 0), 1), Math.min(Math.max((ev.clientY - r.top) / r.height, 0), 1)];
+    const long = Math.max(w, hgt);
+    // Width as a part of the longer side (the highlighter is wider and lets the picture through).
+    const stroke = { at: edits.ops.length, color: brush.color, width: (brush.size * (brush.highlighter ? 3 : 1)) / 1000, opacity: brush.highlighter ? 0.4 : 1, points: [frac(e)] };
+    drawLayer.setAttribute('viewBox', `0 0 ${w} ${hgt}`);
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    Object.entries({ fill: 'none', stroke: stroke.color, 'stroke-width': String(stroke.width * long), 'stroke-opacity': String(stroke.opacity), 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }).forEach(([k, v]) => path.setAttribute(k, v));
+    const redraw = () => path.setAttribute('d', stroke.points.map(([x, y], i) => `${i ? 'L' : 'M'}${x * w} ${y * hgt}`).join('') + (stroke.points.length === 1 ? 'l0.01 0' : ''));
+    redraw();
+    drawLayer.append(path);
+    drawLayer.setPointerCapture(e.pointerId);
+    let last = [e.clientX, e.clientY];
+    const move = (ev) => {
+      // A point every 2 screen pixels is smooth enough and keeps the list small.
+      if (Math.hypot(ev.clientX - last[0], ev.clientY - last[1]) < 2) return;
+      last = [ev.clientX, ev.clientY];
+      stroke.points.push(frac(ev));
+      redraw();
+    };
+    const up = () => {
+      drawLayer.removeEventListener('pointermove', move);
+      drawLayer.removeEventListener('pointerup', up);
+      drawLayer.removeEventListener('pointercancel', up);
+      stroke.points = stroke.points.map(([x, y]) => [Math.round(x * 1e5) / 1e5, Math.round(y * 1e5) / 1e5]);
+      change((ed) => ed.strokes.push(stroke));
+    };
+    drawLayer.addEventListener('pointermove', move);
+    drawLayer.addEventListener('pointerup', up);
+    drawLayer.addEventListener('pointercancel', up);
+  });
+
   function startCrop() {
+    if (drawing) setDrawing(false);
     crop = { x: 0.1, y: 0.1, w: 0.8, h: 0.8 };
     cropLayer.hidden = false;
     showCropBox();
@@ -462,6 +540,7 @@ function buildEditor(file, { id, width: origW, height: origH }) {
       if (histShape !== JSON.stringify(edits.ops)) loadHistogram();
     }
   }, { 'aria-pressed': 'false' });
+  const drawButton = iconButton(icons.pen, t('Draw'), () => setDrawing(!drawing), { 'aria-pressed': 'false' });
   const undoButton = iconButton(icons.undo, t('Undo'), undo, { disabled: true });
   const redoButton = iconButton(icons.redo, t('Redo'), redo, { disabled: true });
   const saveButton = h('button', { type: 'button', class: 'btn', onClick: () => openConvertDialog({ file, id, getEdits: () => edits, onSaved: () => ((savedEdits = structuredClone(edits)), renderButtons()) }) }, t('Save as…'));
@@ -471,12 +550,13 @@ function buildEditor(file, { id, width: origW, height: origH }) {
     cropButton.setAttribute('aria-pressed', String(!!crop));
     applyCrop.hidden = !crop;
     for (const b of geometry) b.disabled = !!crop;
+    drawButton.setAttribute('aria-pressed', String(drawing));
   }
 
   const toolbar = h(
     'div',
     { class: 'doc-toolbar', role: 'toolbar', 'aria-label': t('Image tools') },
-    h('span', { class: 'img-tool-group' }, geometry, cropButton, applyCrop, adjustButton),
+    h('span', { class: 'img-tool-group' }, geometry, cropButton, applyCrop, adjustButton, drawButton),
     h('span', { class: 'img-tool-group' }, undoButton, redoButton),
     h(
       'span',
@@ -502,7 +582,7 @@ function buildEditor(file, { id, width: origW, height: origH }) {
     },
     { passive: false },
   );
-  const root = h('div', { class: 'image-editor' }, toolbar, adjustPanel, stage);
+  const root = h('div', { class: 'image-editor' }, toolbar, adjustPanel, drawPanel, stage);
   root.addEventListener('keydown', (e) => {
     if (!e.ctrlKey || e.altKey || e.target.closest('input')) return;
     const actions = { z: undo, y: redo, '=': () => zoomStep(1), '+': () => zoomStep(1), '-': () => zoomStep(-1), 0: () => setZoom('fit'), 1: () => setZoom(1) };

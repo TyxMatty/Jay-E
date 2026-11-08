@@ -149,11 +149,32 @@ impl Default for Levels {
 pub struct Edits {
     pub ops: Vec<Op>,
     pub adjust: Adjust,
+    /// Drawing over the picture (pen and highlighter), on top of everything else.
+    #[serde(default)]
+    pub strokes: Vec<Stroke>,
 }
+
+/// One brush stroke. Points and width are fractions of the image as it was when drawn (after the
+/// first `at` operations), so a rotation, flip or crop made later carries the drawing along.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Stroke {
+    pub at: usize,
+    /// `#rrggbb`.
+    pub color: String,
+    /// The line's width as a fraction of the image's longer side.
+    pub width: f32,
+    /// 1 for a pen, less for a highlighter (the picture shows through).
+    pub opacity: f32,
+    pub points: Vec<[f32; 2]>,
+}
+
+/// More strokes or points than this are ignored (the list comes from the page).
+const MAX_STROKES: usize = 5_000;
+const MAX_POINTS: usize = 50_000;
 
 impl Edits {
     pub fn is_empty(&self) -> bool {
-        self.ops.is_empty() && self.adjust == Adjust::default()
+        self.ops.is_empty() && self.adjust == Adjust::default() && self.strokes.is_empty()
     }
 
     /// The size after the edits, for an image of `width`×`height`.
@@ -196,7 +217,10 @@ fn crop_rect(w: u32, h: u32, x: f32, y: f32, cw: f32, ch: f32) -> Option<(u32, u
 /// Applies the edits to a copy of `image`.
 pub fn apply(image: &DynamicImage, edits: &Edits) -> DynamicImage {
     let mut out = image.clone();
+    // The size before each operation, to carry strokes through the ones made after them.
+    let mut sizes = Vec::with_capacity(edits.ops.len());
     for op in &edits.ops {
+        sizes.push((out.width(), out.height()));
         out = match *op {
             Op::RotateRight => out.rotate90(),
             Op::RotateLeft => out.rotate270(),
@@ -217,7 +241,100 @@ pub fn apply(image: &DynamicImage, edits: &Edits) -> DynamicImage {
         filters(&mut rgba, &edits.adjust);
         out = DynamicImage::ImageRgba8(rgba);
     }
+    if !edits.strokes.is_empty() {
+        let mut rgba = out.into_rgba8();
+        for stroke in edits.strokes.iter().take(MAX_STROKES) {
+            draw_stroke(&mut rgba, stroke, &edits.ops, &sizes);
+        }
+        out = DynamicImage::ImageRgba8(rgba);
+    }
     out
+}
+
+/// `stroke` carried through the operations made after it, then painted: a round brush,
+/// antialiased, one coverage per pixel (so a stroke crossing itself isn't darker there).
+fn draw_stroke(image: &mut RgbaImage, stroke: &Stroke, ops: &[Op], sizes: &[(u32, u32)]) {
+    let hex = stroke.color.strip_prefix('#').filter(|h| h.len() == 6).and_then(|h| u32::from_str_radix(h, 16).ok());
+    let (Some(rgb), true) = (hex, stroke.width.is_finite() && stroke.opacity.is_finite()) else { return };
+    let color = [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8].map(|c| c as f32);
+    let opacity = stroke.opacity.clamp(0.0, 1.0);
+    let mut points: Vec<[f32; 2]> = stroke.points.iter().take(MAX_POINTS).filter(|p| p[0].is_finite() && p[1].is_finite()).copied().collect();
+    if points.is_empty() || opacity == 0.0 {
+        return;
+    }
+    let mut width = stroke.width.clamp(0.0, 1.0);
+    for (op, &(w, h)) in ops.iter().zip(sizes).skip(stroke.at.min(ops.len())) {
+        let long = w.max(h) as f32;
+        for p in &mut points {
+            *p = match *op {
+                Op::RotateRight => [1.0 - p[1], p[0]],
+                Op::RotateLeft => [p[1], 1.0 - p[0]],
+                Op::FlipH => [1.0 - p[0], p[1]],
+                Op::FlipV => [p[0], 1.0 - p[1]],
+                Op::Crop { x, y, w: cw, h: ch } => match crop_rect(w, h, x, y, cw, ch) {
+                    Some((l, t, pw, ph)) => [(p[0] * w as f32 - l as f32) / pw as f32, (p[1] * h as f32 - t as f32) / ph as f32],
+                    None => *p,
+                },
+            };
+        }
+        // A crop keeps the pixels' size: the same width in pixels is a bigger part of a smaller side.
+        if let Op::Crop { x, y, w: cw, h: ch } = *op {
+            if let Some((_, _, pw, ph)) = crop_rect(w, h, x, y, cw, ch) {
+                width *= long / pw.max(ph) as f32;
+            }
+        }
+    }
+    let (iw, ih) = (image.width() as f32, image.height() as f32);
+    let px: Vec<[f32; 2]> = points.iter().map(|p| [p[0] * iw, p[1] * ih]).collect();
+    let r = (width * iw.max(ih) / 2.0).max(0.5);
+    // The stroke's box, and its coverage there.
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for p in &px {
+        (x0, y0, x1, y1) = (x0.min(p[0]), y0.min(p[1]), x1.max(p[0]), y1.max(p[1]));
+    }
+    let bx0 = (x0 - r - 1.0).floor().max(0.0) as u32;
+    let by0 = (y0 - r - 1.0).floor().max(0.0) as u32;
+    let bx1 = ((x1 + r + 1.0).ceil().max(0.0) as u32).min(image.width());
+    let by1 = ((y1 + r + 1.0).ceil().max(0.0) as u32).min(image.height());
+    if bx0 >= bx1 || by0 >= by1 {
+        return;
+    }
+    let bw = (bx1 - bx0) as usize;
+    let mut cover = vec![0f32; bw * (by1 - by0) as usize];
+    let segments: Vec<([f32; 2], [f32; 2])> = if px.len() == 1 { vec![(px[0], px[0])] } else { px.windows(2).map(|s| (s[0], s[1])).collect() };
+    for (a, b) in segments {
+        let sx0 = ((a[0].min(b[0]) - r - 1.0).floor().max(bx0 as f32)) as u32;
+        let sy0 = ((a[1].min(b[1]) - r - 1.0).floor().max(by0 as f32)) as u32;
+        let sx1 = ((a[0].max(b[0]) + r + 1.0).ceil() as u32).min(bx1);
+        let sy1 = ((a[1].max(b[1]) + r + 1.0).ceil() as u32).min(by1);
+        let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+        let len2 = dx * dx + dy * dy;
+        for y in sy0..sy1 {
+            for x in sx0..sx1 {
+                let (cx, cy) = (x as f32 + 0.5, y as f32 + 0.5);
+                let t = if len2 > 0.0 { (((cx - a[0]) * dx + (cy - a[1]) * dy) / len2).clamp(0.0, 1.0) } else { 0.0 };
+                let d = (cx - a[0] - t * dx).hypot(cy - a[1] - t * dy);
+                let c = (r + 0.5 - d).clamp(0.0, 1.0);
+                let i = (y - by0) as usize * bw + (x - bx0) as usize;
+                if c > cover[i] {
+                    cover[i] = c;
+                }
+            }
+        }
+    }
+    for y in by0..by1 {
+        for x in bx0..bx1 {
+            let k = cover[(y - by0) as usize * bw + (x - bx0) as usize] * opacity;
+            if k > 0.0 {
+                let px = image.get_pixel_mut(x, y);
+                for i in 0..3 {
+                    px[i] = (px[i] as f32 + (color[i] - px[i] as f32) * k).round() as u8;
+                }
+                // Drawing on a transparent part shows: it becomes as opaque as the ink.
+                px[3] = px[3].max((k * 255.0).round() as u8);
+            }
+        }
+    }
 }
 
 /// Reduce noise, sharpen, blur and vignette, in that order. Radii are fractions of the longer side.
@@ -948,6 +1065,37 @@ mod tests {
         // A path that isn't a table changes nothing (and doesn't fail the edit).
         let missing = run(&gray, Adjust { lut: Some("C:/no/such.cube".into()), ..Default::default() });
         assert_eq!(missing.get_pixel(5, 5)[0], 128);
+    }
+
+    #[test]
+    fn strokes_are_drawn_and_follow_later_edits() {
+        let white = DynamicImage::ImageRgba8(RgbaImage::from_pixel(100, 50, Rgba([255, 255, 255, 255])));
+        let line = |at: usize, opacity: f32| Stroke { at, color: "#ff0000".into(), width: 0.04, opacity, points: vec![[0.1, 0.5], [0.4, 0.5]] };
+        let draw = |ops: Vec<Op>, strokes: Vec<Stroke>| apply(&white, &Edits { ops, strokes, ..Default::default() }).into_rgba8();
+        // A red pen line across the left part, 4 px thick, nothing elsewhere.
+        let pen = draw(vec![], vec![line(0, 1.0)]);
+        assert_eq!(pen.get_pixel(25, 25).0, [255, 0, 0, 255]);
+        assert_eq!(pen.get_pixel(25, 20).0, [255, 255, 255, 255]);
+        assert_eq!(pen.get_pixel(70, 25).0, [255, 255, 255, 255]);
+        // A highlighter lets the picture through.
+        assert_eq!(draw(vec![], vec![line(0, 0.5)]).get_pixel(25, 25).0, [255, 128, 128, 255]);
+        // Drawn, then the picture flipped: the line goes to the right part.
+        let flipped = draw(vec![Op::FlipH], vec![line(0, 1.0)]);
+        assert_eq!((flipped.get_pixel(75, 25)[1], flipped.get_pixel(25, 25)[1]), (0, 255));
+        // Drawn after the flip (at = 1): it stays where it was drawn.
+        assert_eq!(draw(vec![Op::FlipH], vec![line(1, 1.0)]).get_pixel(25, 25)[1], 0);
+        // Rotated right after drawing: the horizontal line becomes vertical, in the image's upper part.
+        let turned = draw(vec![Op::RotateRight], vec![line(0, 1.0)]);
+        assert_eq!(turned.dimensions(), (50, 100));
+        assert_eq!((turned.get_pixel(25, 25)[1], turned.get_pixel(10, 25)[1]), (0, 255));
+        // Cropped to the left half: still under the same pixels, and as thick as before.
+        let cropped = draw(vec![Op::Crop { x: 0.0, y: 0.0, w: 0.5, h: 1.0 }], vec![line(0, 1.0)]);
+        assert_eq!((cropped.get_pixel(25, 25)[1], cropped.get_pixel(25, 23)[1], cropped.get_pixel(25, 22)[1]), (0, 0, 255));
+        // A bad color draws nothing.
+        assert_eq!(draw(vec![], vec![Stroke { color: "red".into(), ..line(0, 1.0) }]).get_pixel(25, 25).0, [255, 255, 255, 255]);
+        // An older list (no strokes) still reads.
+        let old: Edits = serde_json::from_str(r#"{"ops":[],"adjust":{}}"#).unwrap();
+        assert!(old.strokes.is_empty() && old.is_empty());
     }
 
     #[test]
