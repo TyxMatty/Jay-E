@@ -115,6 +115,7 @@ fn main() {
             image::image_close,
             image::image_set_edits,
             image::image_histogram,
+            image::image_pick_lut,
             image::image_save_as,
             image::image_convert,
             image::image_convert_cancel,

@@ -14,6 +14,8 @@ export const saveImageAs = (id, options) => call('image_save_as', { id, options 
 export const cancelConvert = () => call('image_convert_cancel');
 /** { r, g, b, l }: 256 counts each, of the image after crop/rotate/flip (image.rs `histogram`). */
 export const imageHistogram = (id) => call('image_histogram', { id });
+/** A `.cube` color look the person picks (checked in Rust): { path, name }, or null if cancelled. */
+export const pickLut = () => call('image_pick_lut');
 
 /** The tone and color settings that change nothing (jay_docs::image::Adjust). */
 export const neutralAdjust = () => ({
@@ -29,6 +31,11 @@ export const neutralAdjust = () => ({
   grayscale: false,
   levels: { black: [0, 0, 0], white: [1, 1, 1], gamma: 1 },
   curve: [],
+  lut: null,
+  denoise: 0,
+  sharpen: 0,
+  blur: 0,
+  vignette: 0,
 });
 
 /** The values with `clip` of the pixels below and above them: the darkest and lightest that count. */

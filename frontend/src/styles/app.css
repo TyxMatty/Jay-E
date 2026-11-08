@@ -1292,6 +1292,24 @@ fieldset > h3 {
   font-size: 12px;
 }
 
+.img-lut {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.img-lut .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.img-lut-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .img-curve {
   width: 168px;
   height: 168px;

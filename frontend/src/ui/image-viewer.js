@@ -5,7 +5,7 @@
 import { h } from './dom.js';
 import { icons } from './icons.js';
 import { t } from '../core/i18n.js';
-import { openImage, closeImage, setEdits, imageUrls, imageHistogram, neutralAdjust, autoAdjust, curveAt } from '../core/image.js';
+import { openImage, closeImage, setEdits, imageUrls, imageHistogram, neutralAdjust, autoAdjust, curveAt, pickLut } from '../core/image.js';
 import { openConvertDialog } from './image-convert.js';
 
 const PREVIEW_SIDE = 2048; // keep in sync with image.rs
@@ -189,7 +189,26 @@ function buildEditor(file, { id, width: origW, height: origH }) {
     slider('gamma', t('Midtones'), { get: (a) => Math.round(Math.log2(a.levels.gamma) * 50), set: (a, v) => (a.levels.gamma = 2 ** (v / 50)) }),
     slider('white', t('White point'), { min: 1, max: 255, get: (a) => Math.round(avg(a.levels.white) * 255), set: (a, v) => (a.levels.white = [v / 255, v / 255, v / 255]) }),
   ];
-  const sliders = [...light, ...color, ...levelSliders];
+  const filterSliders = [
+    slider('denoise', t('Reduce noise'), { min: 0 }),
+    slider('sharpen', t('Sharpen'), { min: 0 }),
+    slider('blur', t('Blur'), { min: 0 }),
+    slider('vignette', t('Vignette')),
+  ];
+  const sliders = [...light, ...color, ...levelSliders, ...filterSliders];
+  // A color look from a .cube file: Rust opens the dialog and checks the table.
+  const lutName = h('span', { class: 'hint img-lut-name' });
+  const lutRemove = h('button', { type: 'button', class: 'icon-btn', title: t('Remove the color look'), 'aria-label': t('Remove the color look'), html: icons.close, onClick: () => change((e) => (e.adjust.lut = null)) });
+  const lutStatus = h('span', { class: 'hint', role: 'status' });
+  const lutButton = h('button', { type: 'button', class: 'btn btn-secondary', onClick: async () => {
+    lutStatus.textContent = '';
+    try {
+      const picked = await pickLut();
+      if (picked) change((e) => (e.adjust.lut = picked.path));
+    } catch (error) {
+      lutStatus.textContent = t("Couldn't use it: {error}", { error: error?.message ?? error?.kind ?? String(error) });
+    }
+  } }, t('Color look (.cube)…'));
   const grayscale = h('input', { type: 'checkbox', id: `img-bw-${id}` });
   grayscale.addEventListener('change', () => change((e) => (e.adjust.grayscale = grayscale.checked)));
 
@@ -328,6 +347,8 @@ function buildEditor(file, { id, width: origW, height: origH }) {
       s.value.textContent = s.input.value;
     }
     grayscale.checked = edits.adjust.grayscale;
+    lutName.textContent = edits.adjust.lut ? edits.adjust.lut.split(/[\\/]/).pop().replace(/\.cube$/i, '') : '';
+    lutRemove.hidden = !edits.adjust.lut;
     drawCurve();
   }
   const section = (title, ...items) => h('div', { class: 'img-adjust-section', role: 'group', 'aria-label': title }, h('h3', {}, title), ...items);
@@ -338,6 +359,7 @@ function buildEditor(file, { id, width: origW, height: origH }) {
     section(t('Light'), light.map((s) => s.row)),
     section(t('Color'), color.map((s) => s.row), h('label', { class: 'img-check' }, grayscale, t('Black and white'))),
     section(t('Levels'), histCanvas, levelSliders.map((s) => s.row), h('div', { class: 'img-auto' }, autoButton('tone', t('Auto tone')), autoButton('contrast', t('Auto contrast')), autoButton('color', t('Auto color')))),
+    section(t('Filters'), filterSliders.map((s) => s.row), h('div', { class: 'img-lut' }, lutButton, lutName, lutRemove), lutStatus),
     section(t('Curve'), curveSvg, h('button', { type: 'button', class: 'btn btn-secondary', onClick: () => change((e) => (e.adjust.curve = [])) }, t('Straight line'))),
     h('div', { class: 'img-adjust-end' }, resetAdjust),
   );

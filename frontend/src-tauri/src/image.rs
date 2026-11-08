@@ -103,15 +103,42 @@ pub struct Edited {
     height: u32,
 }
 
+/// The color look of `edits`, if any, must be a file the person picked (`image_pick_lut`).
+fn check_lut(paths: &OpenedPaths, edits: &Edits) -> Result<(), ImageError> {
+    match &edits.adjust.lut {
+        Some(lut) => opened(paths, std::path::Path::new(lut)),
+        None => Ok(()),
+    }
+}
+
 /// Replaces the edit list; returns the new revision and the edited size.
 #[tauri::command]
-pub fn image_set_edits(id: u32, edits: Edits, images: State<Images>) -> Result<Edited, ImageError> {
+pub fn image_set_edits(id: u32, edits: Edits, images: State<Images>, paths: State<OpenedPaths>) -> Result<Edited, ImageError> {
+    check_lut(&paths, &edits)?;
     let image = images.get(id)?;
     let mut image = image.lock().unwrap();
     let (width, height) = edits.size(image.full.width(), image.full.height());
     image.edits = edits;
     image.rev += 1;
     Ok(Edited { rev: image.rev, width, height })
+}
+
+#[derive(Serialize)]
+pub struct PickedLut {
+    path: String,
+    name: String,
+}
+
+/// Asks for a `.cube` color look and checks it's a table Jay-E can use. `None` if cancelled.
+#[tauri::command]
+pub async fn image_pick_lut(app: AppHandle) -> Result<Option<PickedLut>, ImageError> {
+    let Some(path) = app.dialog().file().add_filter("Color look (.cube)", &["cube"]).blocking_pick_file().and_then(|p| p.into_path().ok()) else { return Ok(None) };
+    let checked = path.clone();
+    tauri::async_runtime::spawn_blocking(move || img::load_lut(&checked)).await.map_err(|e| ImageError::Io { message: e.to_string() })??;
+    let name = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let shown = path.to_string_lossy().into_owned();
+    app.state::<OpenedPaths>().allow(path);
+    Ok(Some(PickedLut { path: shown, name }))
 }
 
 #[derive(Serialize)]
@@ -186,6 +213,7 @@ pub enum ConvertEvent {
 pub async fn image_convert(items: Vec<ConvertItem>, options: EncodeOptions, channel: Channel<ConvertEvent>, app: AppHandle) -> Result<bool, ImageError> {
     for item in &items {
         opened(&app.state::<OpenedPaths>(), &item.path)?;
+        check_lut(&app.state::<OpenedPaths>(), &item.edits)?;
     }
     let first_dir = items.first().and_then(|i| i.path.parent().map(PathBuf::from));
     let mut dialog = app.dialog().file();

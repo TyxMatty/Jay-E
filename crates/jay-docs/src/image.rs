@@ -119,6 +119,15 @@ pub struct Adjust {
     pub levels: Levels,
     /// The tone curve: points (in, out) in 0..1, sorted by `in`; fewer than two means none.
     pub curve: Vec<[f32; 2]>,
+    /// A color look from a `.cube` file (3D LUT), by its path; the app only sends files the person
+    /// picked. A file that can't be read leaves the colors as they are.
+    pub lut: Option<String>,
+    /// Filters, 0..1 (0 = off), sized to the picture so the preview and the file look the same.
+    pub denoise: f32,
+    pub sharpen: f32,
+    pub blur: f32,
+    /// Darker (+) or lighter (−) corners.
+    pub vignette: f32,
 }
 
 /// Levels per channel (R, G, B): what becomes black and white, in 0..1, and the midtones' gamma.
@@ -202,9 +211,164 @@ pub fn apply(image: &DynamicImage, edits: &Edits) -> DynamicImage {
     if edits.adjust != Adjust::default() {
         let mut rgba = out.into_rgba8();
         adjust(&mut rgba, &edits.adjust);
+        if let Some(lut) = edits.adjust.lut.as_deref().and_then(cached_lut) {
+            lut.apply(&mut rgba);
+        }
+        filters(&mut rgba, &edits.adjust);
         out = DynamicImage::ImageRgba8(rgba);
     }
     out
+}
+
+/// Reduce noise, sharpen, blur and vignette, in that order. Radii are fractions of the longer side.
+fn filters(image: &mut RgbaImage, a: &Adjust) {
+    let amount = |v: f32| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 };
+    let side = image.width().max(image.height()) as f32;
+    let (denoise, sharpen, blur) = (amount(a.denoise), amount(a.sharpen), amount(a.blur));
+    if denoise > 0.0 {
+        // Edge-aware smoothing: each value moves toward its neighbourhood's average, but less where
+        // it differs a lot from it (an edge, not grain).
+        let smooth = image::imageops::fast_blur(image, (side * 0.0015).max(0.8));
+        let limit = 6.0 + 30.0 * denoise;
+        blend(image, &smooth, |v, s| {
+            let d = s - v;
+            v + d * denoise * (-(d / limit).powi(2)).exp()
+        });
+    }
+    if sharpen > 0.0 {
+        // Unsharp mask: the difference from a slightly blurred copy, added back.
+        let soft = image::imageops::fast_blur(image, (side * 0.001).max(0.7));
+        blend(image, &soft, |v, s| v + (v - s) * sharpen * 2.0);
+    }
+    if blur > 0.0 {
+        *image = image::imageops::fast_blur(image, side * 0.02 * blur);
+    }
+    let vignette = if a.vignette.is_finite() { a.vignette.clamp(-1.0, 1.0) } else { 0.0 };
+    if vignette != 0.0 {
+        let (w, h) = (image.width() as f32, image.height() as f32);
+        let width = image.width() as usize;
+        image.par_chunks_mut(width * 4).enumerate().for_each(|(y, row)| {
+            for (x, px) in row.chunks_exact_mut(4).enumerate() {
+                // 0 in the middle, 1 in the corners; nothing changes inside the inner 40%.
+                let (dx, dy) = ((x as f32 + 0.5) / w - 0.5, (y as f32 + 0.5) / h - 0.5);
+                let r = ((dx * dx + dy * dy).sqrt() / 0.5f32.hypot(0.5) - 0.4).max(0.0) / 0.6;
+                let k = vignette * r * r * (3.0 - 2.0 * r) * 0.8;
+                for v in &mut px[..3] {
+                    let f = *v as f32;
+                    *v = (if k > 0.0 { f * (1.0 - k) } else { f + (255.0 - f) * -k }).round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        });
+    }
+}
+
+/// Each color value from `f(value, other)`, alpha kept.
+fn blend(image: &mut RgbaImage, other: &RgbaImage, f: impl Fn(f32, f32) -> f32 + Sync) {
+    image.par_chunks_mut(4 * 1024).zip(other.par_chunks(4 * 1024)).for_each(|(a, b)| {
+        for (pa, pb) in a.chunks_exact_mut(4).zip(b.chunks_exact(4)) {
+            for i in 0..3 {
+                pa[i] = f(pa[i] as f32, pb[i] as f32).round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    });
+}
+
+/// A 3D color table from a `.cube` file (Adobe/Resolve format): `LUT_3D_SIZE n`, optional
+/// `DOMAIN_MIN`/`DOMAIN_MAX`, then n³ lines `r g b` with red changing fastest.
+#[derive(Debug)]
+pub struct Lut {
+    size: usize,
+    min: [f32; 3],
+    max: [f32; 3],
+    table: Vec<[f32; 3]>,
+}
+
+/// Bigger tables are refused (65 is the usual largest; 128³ is already 2 million colors).
+const MAX_LUT_SIZE: usize = 128;
+
+impl Lut {
+    pub fn parse(text: &str) -> Result<Self, ImageError> {
+        let bad = |why: &str| ImageError::Invalid { message: format!(".cube: {why}") };
+        let (mut size, mut min, mut max) = (0usize, [0.0f32; 3], [1.0f32; 3]);
+        let mut table = Vec::new();
+        let three = |rest: std::str::SplitWhitespace| -> Option<[f32; 3]> {
+            let v: Vec<f32> = rest.map(|t| t.parse().ok()).collect::<Option<_>>()?;
+            (v.len() == 3 && v.iter().all(|x| x.is_finite())).then(|| [v[0], v[1], v[2]])
+        };
+        for line in text.lines() {
+            let line = line.trim();
+            let mut words = line.split_whitespace();
+            match words.next() {
+                None => {}
+                Some(w) if w.starts_with('#') || w == "TITLE" || w == "LUT_IN_VIDEO_RANGE" || w == "LUT_OUT_VIDEO_RANGE" => {}
+                Some("LUT_1D_SIZE") => return Err(bad("1D tables aren't supported")),
+                Some("LUT_3D_SIZE") => {
+                    size = words.next().and_then(|n| n.parse().ok()).filter(|n| (2..=MAX_LUT_SIZE).contains(n)).ok_or_else(|| bad("size"))?;
+                    table.reserve(size * size * size);
+                }
+                Some("DOMAIN_MIN") => min = three(words).ok_or_else(|| bad("DOMAIN_MIN"))?,
+                Some("DOMAIN_MAX") => max = three(words).ok_or_else(|| bad("DOMAIN_MAX"))?,
+                Some(_) => {
+                    let rgb = three(line.split_whitespace()).ok_or_else(|| bad("a line that isn't three numbers"))?;
+                    if size == 0 || table.len() == size * size * size {
+                        return Err(bad("more colors than LUT_3D_SIZE"));
+                    }
+                    table.push(rgb);
+                }
+            }
+        }
+        if size == 0 || table.len() != size * size * size || (0..3).any(|i| max[i] <= min[i]) {
+            return Err(bad("incomplete table"));
+        }
+        Ok(Self { size, min, max, table })
+    }
+
+    /// Every pixel through the table (trilinear between its points), alpha kept.
+    fn apply(&self, image: &mut RgbaImage) {
+        let n = self.size;
+        let at = |r: usize, g: usize, b: usize| self.table[r + g * n + b * n * n];
+        image.par_chunks_mut(4 * 1024).for_each(|chunk| {
+            for px in chunk.chunks_exact_mut(4) {
+                let pos: [f32; 3] = std::array::from_fn(|i| ((px[i] as f32 / 255.0 - self.min[i]) / (self.max[i] - self.min[i])).clamp(0.0, 1.0) * (n - 1) as f32);
+                let lo = pos.map(|v| (v.floor() as usize).min(n - 2));
+                let t: [f32; 3] = std::array::from_fn(|i| pos[i] - lo[i] as f32);
+                let mut out = [0.0f32; 3];
+                for corner in 0..8 {
+                    let (dr, dg, db) = (corner & 1, (corner >> 1) & 1, (corner >> 2) & 1);
+                    let wgt = [dr, dg, db].iter().zip(t).map(|(&d, ti)| if d == 1 { ti } else { 1.0 - ti }).product::<f32>();
+                    let c = at(lo[0] + dr, lo[1] + dg, lo[2] + db);
+                    for i in 0..3 {
+                        out[i] += c[i] * wgt;
+                    }
+                }
+                for i in 0..3 {
+                    px[i] = (out[i] * 255.0).round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        });
+    }
+}
+
+/// Reads a `.cube` file (at most 100 MB) and checks it.
+pub fn load_lut(path: &Path) -> Result<Lut, ImageError> {
+    if fs::metadata(path)?.len() > 100 << 20 {
+        return Err(ImageError::Invalid { message: ".cube: too big".into() });
+    }
+    Lut::parse(&String::from_utf8_lossy(&fs::read(path)?))
+}
+
+/// The tables already read, by path: a slider move redraws without reading the file again.
+fn cached_lut(path: &str) -> Option<std::sync::Arc<Lut>> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<HashMap<String, Arc<Lut>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some(lut) = cache.lock().unwrap().get(path) {
+        return Some(lut.clone());
+    }
+    let lut = Arc::new(load_lut(Path::new(path)).ok()?);
+    cache.lock().unwrap().insert(path.to_owned(), lut.clone());
+    Some(lut)
 }
 
 /// On 8-bit sRGB, alpha untouched, in this order: exposure, levels, curve, temperature and tint (one
@@ -740,6 +904,50 @@ mod tests {
         // Black and white: one gray, alpha kept.
         let bw = px(Adjust { grayscale: true, ..Default::default() }, [200, 50, 10]);
         assert!(bw[0] == bw[1] && bw[1] == bw[2] && bw[3] == 200);
+    }
+
+    #[test]
+    fn filters_and_color_looks() {
+        let run = |img: &RgbaImage, a: Adjust| apply(&DynamicImage::ImageRgba8(img.clone()), &Edits { adjust: a, ..Default::default() }).into_rgba8();
+        // A hard edge: black on the left, white on the right.
+        let edge = RgbaImage::from_fn(64, 8, |x, _| if x < 32 { Rgba([0, 0, 0, 255]) } else { Rgba([255, 255, 255, 255]) });
+        let blurred = run(&edge, Adjust { blur: 0.5, ..Default::default() });
+        assert!(blurred.get_pixel(31, 4)[0] > 40 && blurred.get_pixel(32, 4)[0] < 215, "blur softens the edge");
+        // Sharpening a soft edge makes it steeper.
+        let soft = image::imageops::fast_blur(&edge, 2.0);
+        let sharp = run(&soft, Adjust { sharpen: 1.0, ..Default::default() });
+        let step = |i: &RgbaImage| i.get_pixel(33, 4)[0] as i32 - i.get_pixel(30, 4)[0] as i32;
+        assert!(step(&sharp) > step(&soft), "{} vs {}", step(&sharp), step(&soft));
+        // Reducing noise smooths grain but keeps the edge.
+        let noisy = RgbaImage::from_fn(64, 8, |x, y| {
+            let base = if x < 32 { 60 } else { 200 };
+            let grain = if (x * 7 + y * 13) % 3 == 0 { 10 } else { 0 };
+            Rgba([base + grain, base + grain, base + grain, 255])
+        });
+        let clean = run(&noisy, Adjust { denoise: 1.0, ..Default::default() });
+        let spread = |i: &RgbaImage| (2..28).map(|x| i.get_pixel(x, 4)[0]).max().unwrap() - (2..28).map(|x| i.get_pixel(x, 4)[0]).min().unwrap();
+        assert!(spread(&clean) < spread(&noisy) && clean.get_pixel(40, 4)[0] > 180);
+        // Vignette: corners darker, the middle untouched.
+        let gray = RgbaImage::from_pixel(40, 40, Rgba([128, 128, 128, 255]));
+        let v = run(&gray, Adjust { vignette: 1.0, ..Default::default() });
+        assert!(v.get_pixel(0, 0)[0] < 60 && v.get_pixel(20, 20)[0] == 128);
+        // A .cube that swaps red and blue, and one that's broken.
+        let mut cube = String::from("TITLE \"swap\"\n# comment\nLUT_3D_SIZE 2\n");
+        for b in 0..2 {
+            for g in 0..2 {
+                for r in 0..2 {
+                    cube.push_str(&format!("{b} {g} {r}\n"));
+                }
+            }
+        }
+        let lut = Lut::parse(&cube).unwrap();
+        let mut px = RgbaImage::from_pixel(1, 1, Rgba([200, 100, 50, 77]));
+        lut.apply(&mut px);
+        assert_eq!(px.get_pixel(0, 0).0, [50, 100, 200, 77]);
+        assert!(Lut::parse("LUT_3D_SIZE 2\n0 0 0\n").is_err() && Lut::parse("LUT_1D_SIZE 4\n").is_err() && Lut::parse("LUT_3D_SIZE 99999\n").is_err());
+        // A path that isn't a table changes nothing (and doesn't fail the edit).
+        let missing = run(&gray, Adjust { lut: Some("C:/no/such.cube".into()), ..Default::default() });
+        assert_eq!(missing.get_pixel(5, 5)[0], 128);
     }
 
     #[test]

@@ -30,7 +30,7 @@ Every stage ends with something testable. The full plan, with the "done when" ch
 - [ ] **10. More tools:** the image and video editors grow (ideas from PhotoCraft and OpenShot, `docs/REFERENCIAS.md` section 6), and more ideas for every kind of file.
   - [x] Images, tone and color: Curves and Levels with a histogram; exposure, highlights/shadows, temperature and tint, vibrance; black and white; Auto tone, contrast and color. All in the edit list, undoable.
   - [x] Jay brand: the welcome tour and the dialogs animate as in Jay-C (Settings › Appearance › Animations, On/Off), and the accent glow of every Jay app sits behind the sections.
-  - [ ] Images, filters: sharpen, blur, reduce noise, vignette; color looks from `.cube` LUT files.
+  - [x] Images, filters: sharpen, blur, reduce noise, vignette; color looks from `.cube` LUT files.
   - [ ] Images, geometry: straighten (free rotation with a grid), crop to a ratio (1:1, 4:3, 16:9…), perspective crop.
   - [ ] Images, marking up: text, arrows, rectangles and ellipses, pen and highlighter, blur or pixelate an area (hide data); red eye; remove a spot (clone).
   - [ ] Images: Export with a preview and the file size before saving.

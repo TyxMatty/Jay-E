@@ -33,6 +33,11 @@ impl OpenedPaths {
     pub fn contains(&self, path: &Path) -> bool {
         self.0.lock().unwrap().contains(path)
     }
+
+    /// A file the person picked in a dialog of ours (a `.cube` color look), so the page may name it.
+    pub fn allow(&self, path: PathBuf) {
+        self.0.lock().unwrap().insert(path);
+    }
 }
 
 /// Files from the command line of the first launch, until the page asks for them.
