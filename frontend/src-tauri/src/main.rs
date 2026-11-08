@@ -109,6 +109,8 @@ fn main() {
             #[cfg(windows)]
             video::video_peaks,
             video::video_convert,
+            video::video_render,
+            video::video_pick_picture,
             video::video_cancel,
             video::video_frame,
             latex::latex_compile,

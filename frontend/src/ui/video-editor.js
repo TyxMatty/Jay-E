@@ -213,6 +213,7 @@ export function createVideoEditor(file, url) {
       { class: 'img-tool-group' },
       cutButton,
       button(t('Join…'), () => openJoinDialog(file)),
+      button(t('Edit and export'), () => toggleEdit(), { 'aria-pressed': 'false', class: 'btn btn-secondary video-edit-toggle' }),
       button(t('Convert…'), () => openConvertDialog(file)),
       button(t('Save frame'), async () => {
         try {
@@ -243,7 +244,248 @@ export function createVideoEditor(file, url) {
     })
     .catch(() => {});
 
-  const root = h('div', { class: 'video-editor' }, toolbar, h('div', { class: 'video-stage' }, video), razorBar, stripScroll);
+  // ----- Edit and export: the picture, speed, sound, text and a logo, previewed on the player -----
+  const look = { turns: 0, flipH: false, flipV: false, shape: 'original', brightness: 0, contrast: 0, saturation: 0, speed: 1, volume: 1, mute: false, fadeIn: 0, fadeOut: 0 };
+  /** Text and pictures laid on: { from, to, area (fractions of the edited frame, a PNG stamp), src }. */
+  const overlays = [];
+  const turner = h('div', { class: 'video-turner' }, video);
+  const overlayLayer = h('div', { class: 'video-overlays', 'aria-hidden': 'true' });
+  const frameBox = h('div', { class: 'video-frame' }, turner, overlayLayer);
+  const stage = h('div', { class: 'video-stage' }, frameBox);
+  const SHAPES = [['original', t('Original')], ['1:1', '1:1'], ['9:16', '9:16'], ['16:9', '16:9'], ['4:5', '4:5']];
+  const transformed = () => look.turns % 4 || look.flipH || look.flipV || look.shape !== 'original';
+  /** The crop (fractions of the turned frame) for the chosen shape: centered, as large as fits. */
+  function cropFor(rw, rh) {
+    if (look.shape === 'original') return null;
+    const [a, b] = look.shape.split(':').map(Number);
+    const want = a / b;
+    let [cw, ch] = rw / rh > want ? [(want * rh) / rw, 1] : [1, rw / (want * rh)];
+    return { x: (1 - cw) / 2, y: (1 - ch) / 2, w: cw, h: ch };
+  }
+  /** Lays the player out as the export will look: turned, flipped and cut to the shape, fitted. */
+  function fitFrame() {
+    const [vw, vh] = [video.videoWidth || 16, video.videoHeight || 9];
+    const odd = look.turns % 2 === 1;
+    const [rw, rh] = odd ? [vh, vw] : [vw, vh];
+    const crop = cropFor(rw, rh) ?? { x: 0, y: 0, w: 1, h: 1 };
+    const [ew, eh] = [rw * crop.w, rh * crop.h];
+    const s = Math.min(stage.clientWidth / ew, stage.clientHeight / eh) || 1;
+    Object.assign(frameBox.style, { width: `${ew * s}px`, height: `${eh * s}px` });
+    Object.assign(turner.style, { width: `${rw * s}px`, height: `${rh * s}px`, left: `${-crop.x * rw * s}px`, top: `${-crop.y * rh * s}px` });
+    Object.assign(video.style, {
+      width: `${vw * s}px`,
+      height: `${vh * s}px`,
+      left: `${((rw - vw) * s) / 2}px`,
+      top: `${((rh - vh) * s) / 2}px`,
+      transform: `scale(${look.flipH ? -1 : 1}, ${look.flipV ? -1 : 1}) rotate(${look.turns * 90}deg)`,
+      filter: `brightness(${1 + look.brightness}) contrast(${1 + look.contrast}) saturate(${1 + look.saturation})`,
+    });
+    // The player's own controls would turn with the picture: the bar's Play does it then.
+    video.controls = !transformed();
+    playButton.hidden = !transformed();
+    return { rw, rh, crop, ew, eh };
+  }
+  new ResizeObserver(() => stage.isConnected && fitFrame()).observe(stage);
+  video.addEventListener('loadedmetadata', fitFrame);
+  function applyLook() {
+    video.playbackRate = look.speed;
+    video.preservesPitch = false; // as the export: the pitch goes with the speed
+    video.volume = Math.min(look.volume, 1);
+    video.muted = look.mute;
+    fitFrame();
+    showOverlays();
+  }
+  function showOverlays() {
+    const now = video.currentTime;
+    overlayLayer.replaceChildren(
+      ...overlays
+        .filter((o) => now >= o.from && now < o.to)
+        .map((o) => h('img', { src: o.src, alt: '', style: `left:${o.area.x * 100}%;top:${o.area.y * 100}%;width:${o.area.w * 100}%;height:${o.area.h * 100}%` })),
+    );
+  }
+  video.addEventListener('timeupdate', showOverlays);
+  video.addEventListener('seeked', showOverlays);
+  const playButton = button(t('Play / pause'), () => (video.paused ? video.play() : video.pause()), { hidden: true, title: t('Space') });
+
+  /** The edits for Rust: the image editor's operations and color, the overlays, speed and sound. */
+  function renderEdits() {
+    const { rw, rh, crop } = fitFrame();
+    void rw;
+    void rh;
+    const ops = [...Array(look.turns % 4)].map(() => ({ op: 'rotateRight' }));
+    if (look.flipH) ops.push({ op: 'flipH' });
+    if (look.flipV) ops.push({ op: 'flipV' });
+    if (crop.w < 1 || crop.h < 1) ops.push({ op: 'crop', ...crop });
+    return {
+      picture: { ops, adjust: { brightness: look.brightness, contrast: look.contrast, saturation: look.saturation }, strokes: [], areas: [] },
+      overlays: overlays.map(({ from, to, area }) => ({ from, to, area: { ...area, at: ops.length } })),
+      speed: look.speed,
+      volume: look.volume,
+      mute: look.mute,
+      fadeIn: look.fadeIn,
+      fadeOut: look.fadeOut,
+    };
+  }
+  const editSlider = (key, label, min, max, scale) => {
+    const input = h('input', { type: 'range', min: String(min), max: String(max), step: '1', value: String(look[key] * scale), id: `video-${key}` });
+    const out = h('output', { class: 'hint', for: input.id }, String(look[key] * scale));
+    input.addEventListener('input', () => {
+      look[key] = Number(input.value) / scale;
+      out.textContent = input.value;
+      applyLook();
+    });
+    return h('div', { class: 'img-slider' }, h('label', { for: input.id }, label), input, out);
+  };
+  const shapeSelect = h('select', { class: 'input', id: 'video-shape', onChange: () => ((look.shape = shapeSelect.value), applyLook()) }, SHAPES.map(([v, l]) => h('option', { value: v }, l)));
+  const speedSelect = h('select', { class: 'input', id: 'video-speed', onChange: () => ((look.speed = Number(speedSelect.value)), applyLook()) }, [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4].map((v) => h('option', { value: String(v), selected: v === 1 }, `${v}×`)));
+  const mute = h('input', { type: 'checkbox', id: 'video-mute', onChange: () => ((look.mute = mute.checked), applyLook()) });
+  const seconds = (key, label) => {
+    const input = h('input', { type: 'number', class: 'input video-seconds', min: '0', max: '10', step: '0.5', value: '0', id: `video-${key}` });
+    input.addEventListener('input', () => (look[key] = Math.min(Math.max(Number(input.value) || 0, 0), 10)));
+    return h('div', { class: 'img-slider' }, h('label', { for: input.id }, label), input);
+  };
+  // Text: drawn here (the app's font, white with a dark edge), laid on by Rust for the marked part.
+  const textInput = h('input', { type: 'text', class: 'input', id: 'video-text', placeholder: t('Text to show') });
+  const textPlace = h('select', { class: 'input', 'aria-label': t('Where') }, [['bottom', t('Bottom')], ['middle', t('Middle')], ['top', t('Top')]].map(([v, l]) => h('option', { value: v }, l)));
+  const overlayList = h('ul', { class: 'video-overlay-list' });
+  function listOverlays() {
+    overlayList.replaceChildren(
+      ...overlays.map((o, i) =>
+        h('li', {}, h('span', {}, `${o.label} · ${clock(o.from)}–${clock(o.to)}`), h('button', { type: 'button', class: 'icon-btn', 'aria-label': t('Remove {name}', { name: o.label }), html: '×', onClick: () => (overlays.splice(i, 1), listOverlays(), showOverlays()) })),
+      ),
+    );
+  }
+  function addText() {
+    const text = textInput.value.trim();
+    if (!text) return;
+    const { ew, eh } = fitFrame();
+    const fontPx = Math.max(16, eh * 0.06);
+    const c = document.createElement('canvas');
+    const g = c.getContext('2d');
+    const font = `700 ${fontPx}px ${getComputedStyle(document.body).fontFamily}`;
+    g.font = font;
+    c.width = Math.ceil(g.measureText(text).width + fontPx * 0.6);
+    c.height = Math.ceil(fontPx * 1.4);
+    g.font = font;
+    g.lineJoin = 'round';
+    g.lineWidth = fontPx * 0.15;
+    g.strokeStyle = 'rgba(0,0,0,0.75)';
+    g.fillStyle = '#fff';
+    g.strokeText(text, fontPx * 0.3, fontPx * 1.05);
+    g.fillText(text, fontPx * 0.3, fontPx * 1.05);
+    const w = Math.min(c.width / ew, 0.96);
+    const hh = (w * ew * (c.height / c.width)) / eh;
+    const y = textPlace.value === 'top' ? 0.05 : textPlace.value === 'middle' ? (1 - hh) / 2 : 0.95 - hh;
+    const src = c.toDataURL('image/png');
+    overlays.push({ label: text, from: start, to: end ?? duration(), src, area: { x: (1 - w) / 2, y, w, h: hh, kind: 'stamp', png: src.split(',')[1] } });
+    textInput.value = '';
+    listOverlays();
+    showOverlays();
+  }
+  async function addPicture() {
+    const picked = await call('video_pick_picture');
+    if (!picked) return;
+    const [png, pw, ph] = picked;
+    const { ew, eh } = fitFrame();
+    const w = 0.18;
+    const hh = (w * ew * (ph / pw)) / eh;
+    overlays.push({ label: t('Picture'), from: 0, to: duration(), src: `data:image/png;base64,${png}`, area: { x: 0.97 - w, y: 0.97 - hh, w, h: hh, kind: 'stamp', png } });
+    listOverlays();
+    showOverlays();
+  }
+  // Export: a preset, or a size to shrink to.
+  const PRESETS = {
+    original: { maxHeight: null, videoKbps: 8000, audioKbps: 160 },
+    whatsapp: { maxHeight: 720, videoKbps: 1500, audioKbps: 128 },
+    youtube: { maxHeight: 1080, videoKbps: 8000, audioKbps: 192 },
+    small: { maxHeight: 480, videoKbps: 800, audioKbps: 96 },
+  };
+  const presetSelect = h(
+    'select',
+    { class: 'input', id: 'video-preset' },
+    [['original', t('Best quality')], ['whatsapp', t('WhatsApp (720p)')], ['youtube', t('YouTube (1080p)')], ['small', t('Small file (480p)')], ['size', t('Shrink to a size…')], ['audio', t('Sound only (M4A)')]].map(([v, l]) => h('option', { value: v }, l)),
+  );
+  const sizeInput = h('input', { type: 'number', class: 'input video-seconds', min: '1', max: '4000', step: '1', value: '25', id: 'video-size', 'aria-label': t('Size in MB') });
+  const sizeRow = h('div', { class: 'img-slider', hidden: true }, h('label', { for: 'video-size' }, t('Size in MB (Discord: 25, WhatsApp: 16)')), sizeInput);
+  presetSelect.addEventListener('change', () => (sizeRow.hidden = presetSelect.value !== 'size'));
+  /** The encoder settings for the preset; for a size, the bit rate that fits it. */
+  function exportOptions() {
+    const p = presetSelect.value;
+    if (p === 'audio') return { audioOnly: true, maxHeight: null, videoKbps: 1000, audioKbps: 160 };
+    if (p !== 'size') return { audioOnly: false, ...PRESETS[p] };
+    const seconds = Math.max(duration() / look.speed, 1);
+    const audioKbps = 96;
+    // 5% for the container; never below what still looks like a video.
+    const videoKbps = Math.max(150, Math.floor(((Number(sizeInput.value) || 25) * 8 * 1024 * 0.95) / seconds - audioKbps));
+    return { audioOnly: false, maxHeight: videoKbps < 600 ? 480 : videoKbps < 1500 ? 720 : null, videoKbps, audioKbps };
+  }
+  const exportBar = h('progress', { max: '1', value: '0', hidden: true, class: 'video-progress' });
+  const exportStatus = h('span', { class: 'hint', role: 'status' });
+  const exportButton = h('button', { type: 'button', class: 'btn' }, t('Export…'));
+  const stopButton = h('button', { type: 'button', class: 'btn btn-danger', hidden: true, onClick: () => call('video_cancel').catch(() => {}) }, t('Stop'));
+  exportButton.addEventListener('click', async () => {
+    const { Channel } = await core();
+    const channel = new Channel();
+    const running = (on) => ((exportButton.disabled = on), (stopButton.hidden = !on), (exportBar.hidden = !on));
+    channel.onmessage = (e) => {
+      if (e.event === 'progress') {
+        exportBar.value = e.done;
+        exportStatus.textContent = `${Math.round(e.done * 100)}%`;
+      } else {
+        running(false);
+        exportStatus.textContent = e.event === 'finished' ? t('Saved as {path}', { path: e.path }) : e.error?.kind === 'cancelled' ? t('Stopped.') : t("Couldn't export: {error}", { error: errorText(e.error) });
+      }
+    };
+    running(true);
+    exportStatus.textContent = '';
+    try {
+      if (!(await call('video_render', { path: file.path, options: exportOptions(), edits: renderEdits(), channel }))) running(false);
+    } catch (e) {
+      running(false);
+      exportStatus.textContent = t("Couldn't export: {error}", { error: errorText(e) });
+    }
+  });
+  const section = (title, ...items) => h('div', { class: 'img-adjust-section', role: 'group', 'aria-label': title }, h('h3', {}, title), ...items);
+  const editPanel = h(
+    'div',
+    { class: 'img-adjust video-edit', hidden: true, role: 'group', 'aria-label': t('Edit and export') },
+    section(
+      t('Picture'),
+      h(
+        'div',
+        { class: 'img-auto' },
+        button(t('Rotate'), () => ((look.turns = (look.turns + 1) % 4), applyLook())),
+        button(t('Flip'), () => ((look.flipH = !look.flipH), applyLook())),
+        button(t('Upside down'), () => ((look.flipV = !look.flipV), applyLook())),
+      ),
+      h('div', { class: 'img-slider' }, h('label', { for: 'video-shape' }, t('Shape')), shapeSelect),
+      editSlider('brightness', t('Brightness'), -100, 100, 100),
+      editSlider('contrast', t('Contrast'), -100, 100, 100),
+      editSlider('saturation', t('Saturation'), -100, 100, 100),
+    ),
+    section(
+      t('Speed and sound'),
+      h('div', { class: 'img-slider' }, h('label', { for: 'video-speed' }, t('Speed')), speedSelect),
+      editSlider('volume', t('Volume'), 0, 200, 100),
+      h('label', { class: 'img-check' }, mute, t('Mute')),
+      seconds('fadeIn', t('Fade in (s)')),
+      seconds('fadeOut', t('Fade out (s)')),
+    ),
+    section(
+      t('Text and picture'),
+      h('div', { class: 'img-auto' }, textInput, textPlace, button(t('Add text'), addText)),
+      h('span', { class: 'hint' }, t('Shown in the marked part (Start here / End here), or all along.')),
+      button(t('Add a picture (logo)…'), addPicture),
+      overlayList,
+    ),
+    section(t('Export'), h('div', { class: 'img-slider' }, h('label', { for: 'video-preset' }, t('As')), presetSelect), sizeRow, h('div', { class: 'img-auto' }, exportButton, stopButton), exportBar, exportStatus),
+  );
+  function toggleEdit() {
+    editPanel.hidden = !editPanel.hidden;
+    toolbar.querySelector('.video-edit-toggle')?.setAttribute('aria-pressed', String(!editPanel.hidden));
+  }
+  razorBar.prepend(playButton);
+  const root = h('div', { class: 'video-editor' }, toolbar, editPanel, stage, razorBar, stripScroll);
   root.addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.target.closest('input, select')) return;
     if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return e.preventDefault(), move(e.key === 'ArrowLeft' ? -1 : 1);
@@ -252,6 +494,7 @@ export function createVideoEditor(file, url) {
     else if (e.key === 'o' || e.key === 'O') markEnd();
     else if (e.key === 's' || e.key === 'S') split();
     else if (e.key === 'Delete') toggleKeep();
+    else if (e.key === ' ' && !video.controls) e.preventDefault(), video.paused ? video.play() : video.pause();
     else if (e.key === ',') stepFrame(-1);
     else if (e.key === '.') stepFrame(1);
   });

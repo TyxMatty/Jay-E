@@ -1814,6 +1814,59 @@ fieldset > h3 {
   background: #000;
 }
 
+/* The player laid out as the export: the frame (cut to the shape), the turned box in it, the video. */
+.video-stage {
+  align-items: center;
+  justify-content: center;
+}
+
+.video-frame {
+  position: relative;
+  flex: none;
+  overflow: hidden;
+}
+
+.video-turner {
+  position: absolute;
+}
+
+.video-turner > .view-media {
+  position: absolute;
+  max-height: none;
+  transform-origin: center;
+}
+
+.video-overlays {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.video-overlays > img {
+  position: absolute;
+}
+
+.video-seconds {
+  width: 6em;
+}
+
+.video-overlay-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.video-overlay-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.video-edit .input {
+  min-width: 0;
+}
+
 .video-stage .view-media {
   width: 100%;
   height: 100%;

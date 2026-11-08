@@ -38,12 +38,17 @@ Every stage ends with something testable. The full plan, with the "done when" ch
   - [x] Images: Export with a preview and the file size before saving.
   - [x] Video, timeline: thumbnails and the audio waveform, zoom, frame by frame (, and .).
   - [x] Video, razor: split into several pieces, drop the ones in the middle, reorder them; copied without re-encoding.
-  - [ ] Video, speed (0.25× to 4×) and reverse; crop the frame, rotate 90°, flip.
-  - [ ] Video, sound: volume, mute, fade in and out, save the sound alone, replace it or add music.
-  - [ ] Video, fades to and from black, a dissolve between joined pieces; text and a watermark picture over the video, from a time to a time; brightness, contrast, saturation; blur an area.
-  - [ ] Video: export presets (WhatsApp, YouTube 1080p, animated GIF).
+  - [x] Video, speed (0.25× to 4×); a frame shape (1:1, 9:16, 16:9, 4:5), rotate 90°, flip.
+  - [ ] Video: play in reverse.
+  - [x] Video, sound: volume, mute, fade in and out, save the sound alone.
+  - [ ] Video: replace the sound or add music.
+  - [x] Video, fades to and from black; text and a watermark picture over the video, from a time to a time; brightness, contrast, saturation.
+  - [ ] Video: a dissolve between joined pieces; blur an area.
+  - [x] Video: export presets (WhatsApp, YouTube 1080p, small file, sound only).
+  - [ ] Video: animated GIF.
   - [x] Images: the same edits on many pictures at once; read HEIC and RAW through Windows' own codecs (WIC); see the photo's details (place, camera) and save without them; before/after.
-  - [ ] Video: shrink to a size (25 MB for Discord, 16 MB for WhatsApp); a GIF from a stretch; subtitles (`.srt`) shown in the player and burned in; save a frame every N seconds.
+  - [x] Video: shrink to a size (25 MB for Discord, 16 MB for WhatsApp).
+  - [ ] Video: subtitles (`.srt`) shown in the player and burned in; save a frame every N seconds.
   - [ ] PDF: compress (images at a lower resolution); a drawn signature; black out text for good (redaction, the text removed, not covered); make it searchable with Windows' own OCR (`Windows.Media.Ocr`); pictures into one PDF and pages as pictures.
   - [ ] Documents: find and replace, word count, spelling in the file's language; compare two versions of a DOCX.
   - [ ] Converter: read HTML; LaTeX to PDF; a folder watched for new files.

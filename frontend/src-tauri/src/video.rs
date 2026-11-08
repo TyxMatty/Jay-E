@@ -156,6 +156,47 @@ pub async fn video_convert(path: PathBuf, options: jay_docs::video::mf::ConvertO
     Ok(true)
 }
 
+/// Exports with edits (picture, overlays, speed, sound, fades) where the person picks, reporting
+/// to `channel` like `video_convert`. Returns false if the dialog was cancelled.
+#[cfg(windows)]
+#[tauri::command]
+pub async fn video_render(path: PathBuf, options: jay_docs::video::mf::ConvertOptions, edits: jay_docs::video::mf::Render, channel: Channel<ConvertEvent>, app: AppHandle, jobs: State<'_, VideoJobs>) -> Result<bool, VideoError> {
+    opened(&app, &path)?;
+    let ext = if options.audio_only { "m4a" } else { "mp4" };
+    let Some(target) = pick_target(&app, &path, format!("{} (edited).{ext}", stem(&path)), ext) else { return Ok(false) };
+    let cancel = Arc::new(AtomicBool::new(false));
+    *jobs.0.lock().unwrap() = Some(cancel.clone());
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        let progress_channel = channel.clone();
+        let mut progress = move |done: f64| drop(progress_channel.send(ConvertEvent::Progress { done }));
+        let event = match jay_docs::video::mf::render(&path, &target, &options, &edits, &mut progress, &cancel) {
+            Ok(()) => {
+                files::announce(&handle, vec![target.clone()]);
+                ConvertEvent::Finished { path: target.to_string_lossy().into_owned() }
+            }
+            Err(error) => ConvertEvent::Failed { error },
+        };
+        let _ = channel.send(event);
+    });
+    Ok(true)
+}
+
+/// A picture to lay on a video (a logo): picked here, shrunk to 512 px at most, as a PNG in base64.
+/// `None` if cancelled.
+#[tauri::command]
+pub async fn video_pick_picture(app: AppHandle) -> Result<Option<(String, u32, u32)>, VideoError> {
+    let Some(path) = app.dialog().file().add_filter("Image", &["png", "jpg", "jpeg", "webp", "gif", "bmp"]).blocking_pick_file().and_then(|p| p.into_path().ok()) else { return Ok(None) };
+    blocking(move || {
+        let image = jay_docs::image::decode(&path).map_err(|e| VideoError::Invalid { message: format!("{e:?}") })?;
+        let small = if image.width().max(image.height()) > 512 { image.thumbnail(512, 512) } else { image };
+        let mut png = Vec::new();
+        small.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).map_err(|e| VideoError::Invalid { message: e.to_string() })?;
+        Ok(Some((crate::doc::base64(&png), small.width(), small.height())))
+    })
+    .await
+}
+
 #[tauri::command]
 pub fn video_cancel(jobs: State<VideoJobs>) {
     if let Some(flag) = jobs.0.lock().unwrap().as_ref() {
