@@ -21,7 +21,7 @@ pub enum EditError {
     Invalid { message: String },
 }
 
-fn invalid(e: impl std::fmt::Display) -> EditError {
+pub(crate) fn invalid(e: impl std::fmt::Display) -> EditError {
     EditError::Invalid { message: e.to_string() }
 }
 
@@ -80,7 +80,7 @@ pub struct Widget {
 
 // ---------------------------------------------------------------- loading and saving
 
-fn load(bytes: &[u8]) -> Result<Document, EditError> {
+pub(crate) fn load(bytes: &[u8]) -> Result<Document, EditError> {
     let doc = Document::load_mem(bytes).map_err(invalid)?;
     if doc.is_encrypted() || doc.trailer.has(b"Encrypt") {
         return Err(EditError::Encrypted);
@@ -88,21 +88,21 @@ fn load(bytes: &[u8]) -> Result<Document, EditError> {
     Ok(doc)
 }
 
-fn save(doc: &mut Document) -> Result<Vec<u8>, EditError> {
+pub(crate) fn save(doc: &mut Document) -> Result<Vec<u8>, EditError> {
     let mut out = Vec::new();
     doc.save_to(&mut out).map_err(invalid)?;
     Ok(out)
 }
 
 /// What a value is, through references.
-fn deref<'a>(doc: &'a Document, obj: &'a Object) -> &'a Object {
+pub(crate) fn deref<'a>(doc: &'a Document, obj: &'a Object) -> &'a Object {
     match obj {
         Object::Reference(id) => doc.get_object(*id).unwrap_or(&Object::Null),
         o => o,
     }
 }
 
-fn num(obj: &Object) -> Option<f32> {
+pub(crate) fn num(obj: &Object) -> Option<f32> {
     match obj {
         Object::Integer(i) => Some(*i as f32),
         Object::Real(r) => Some(*r),
@@ -110,7 +110,7 @@ fn num(obj: &Object) -> Option<f32> {
     }
 }
 
-fn name(obj: &Object) -> Option<String> {
+pub(crate) fn name(obj: &Object) -> Option<String> {
     match obj {
         Object::Name(n) => Some(String::from_utf8_lossy(n).into_owned()),
         _ => None,
@@ -135,7 +135,7 @@ fn pages_root(doc: &Document) -> Result<ObjectId, EditError> {
 
 /// The pages, in order, each holding what it inherited (size, resources, rotation) itself, all
 /// children of the root: then reordering and deleting are just the root's `/Kids`.
-fn flatten(doc: &mut Document) -> Result<Vec<ObjectId>, EditError> {
+pub(crate) fn flatten(doc: &mut Document) -> Result<Vec<ObjectId>, EditError> {
     let root = pages_root(doc)?;
     let pages: Vec<ObjectId> = doc.get_pages().into_values().collect();
     for &page in &pages {
@@ -179,7 +179,7 @@ fn set_kids(doc: &mut Document, pages: &[ObjectId]) -> Result<(), EditError> {
     Ok(())
 }
 
-fn page_id(pages: &[ObjectId], index: usize) -> Result<ObjectId, EditError> {
+pub(crate) fn page_id(pages: &[ObjectId], index: usize) -> Result<ObjectId, EditError> {
     pages.get(index).copied().ok_or_else(|| invalid("no such page"))
 }
 
@@ -187,7 +187,7 @@ fn page_id(pages: &[ObjectId], index: usize) -> Result<ObjectId, EditError> {
 
 /// A page's visible box and rotation, to go between the page as shown and user space.
 #[derive(Debug, Clone, Copy)]
-struct Geo {
+pub(crate) struct Geo {
     x0: f32,
     y0: f32,
     x1: f32,
@@ -201,7 +201,7 @@ fn rect_of(doc: &Document, obj: &Object) -> Option<[f32; 4]> {
     (v.len() == 4).then(|| [v[0].min(v[2]), v[1].min(v[3]), v[0].max(v[2]), v[1].max(v[3])])
 }
 
-fn geo(doc: &Document, page: ObjectId) -> Geo {
+pub(crate) fn geo(doc: &Document, page: ObjectId) -> Geo {
     let dict = doc.get_dictionary(page).ok();
     let media = dict.and_then(|d| d.get(b"MediaBox").ok()).and_then(|o| rect_of(doc, o)).unwrap_or([0.0, 0.0, 612.0, 792.0]);
     let crop = dict.and_then(|d| d.get(b"CropBox").ok()).and_then(|o| rect_of(doc, o)).unwrap_or(media);
@@ -211,7 +211,7 @@ fn geo(doc: &Document, page: ObjectId) -> Geo {
 
 impl Geo {
     /// From the shown page (top-left origin, after rotation) to user space.
-    fn to_user(&self, [dx, dy]: [f32; 2]) -> [f32; 2] {
+    pub(crate) fn to_user(&self, [dx, dy]: [f32; 2]) -> [f32; 2] {
         match self.rot {
             90 => [self.x0 + dy, self.y0 + dx],
             180 => [self.x1 - dx, self.y0 + dy],
@@ -220,7 +220,7 @@ impl Geo {
         }
     }
 
-    fn from_user(&self, [ux, uy]: [f32; 2]) -> [f32; 2] {
+    pub(crate) fn from_user(&self, [ux, uy]: [f32; 2]) -> [f32; 2] {
         match self.rot {
             90 => [uy - self.y0, ux - self.x0],
             180 => [self.x1 - ux, uy - self.y0],
@@ -241,7 +241,7 @@ impl Geo {
     }
 
     /// A box `[x, y, w, h]` on the shown page as a user-space rectangle.
-    fn user_rect(&self, [x, y, w, h]: [f32; 4]) -> [f32; 4] {
+    pub(crate) fn user_rect(&self, [x, y, w, h]: [f32; 4]) -> [f32; 4] {
         bbox(&[self.to_user([x, y]), self.to_user([x + w, y + h])], 0.0)
     }
 
@@ -269,7 +269,7 @@ fn color(hex: &str) -> [f32; 3] {
     if h.len() == 6 { [c(0), c(2), c(4)] } else { [1.0, 0.85, 0.0] }
 }
 
-fn n(v: f32) -> String {
+pub(crate) fn n(v: f32) -> String {
     let s = format!("{v:.3}");
     let s = s.trim_end_matches('0').trim_end_matches('.');
     if s == "-0" { "0".into() } else { s.into() }
@@ -286,7 +286,7 @@ fn color_obj(c: [f32; 3]) -> Object {
 // ---------------------------------------------------------------- text for appearances
 
 /// A string in PDF's WinAnsiEncoding (Latin letters, accents, common punctuation), others as '?'.
-fn win_ansi(s: &str) -> Vec<u8> {
+pub(crate) fn win_ansi(s: &str) -> Vec<u8> {
     const HIGH: [(char, u8); 27] = [
         ('€', 0x80), ('‚', 0x82), ('ƒ', 0x83), ('„', 0x84), ('…', 0x85), ('†', 0x86), ('‡', 0x87), ('ˆ', 0x88), ('‰', 0x89), ('Š', 0x8A), ('‹', 0x8B), ('Œ', 0x8C), ('Ž', 0x8E),
         ('‘', 0x91), ('’', 0x92), ('“', 0x93), ('”', 0x94), ('•', 0x95), ('–', 0x96), ('—', 0x97), ('˜', 0x98), ('™', 0x99), ('š', 0x9A), ('›', 0x9B), ('œ', 0x9C), ('ž', 0x9E), ('Ÿ', 0x9F),
@@ -319,7 +319,7 @@ fn literal(s: &str) -> String {
 }
 
 /// Helvetica's widths (1/1000 em) for ASCII, near enough for others: to size text boxes.
-fn text_width(s: &str, size: f32) -> f32 {
+pub(crate) fn text_width(s: &str, size: f32) -> f32 {
     s.chars().map(|c| if c == ' ' { 0.278 } else if c.is_ascii_uppercase() || c == 'm' || c == 'w' { 0.72 } else if "iljtf.,;:'!|".contains(c) { 0.28 } else { 0.556 }).sum::<f32>() * size
 }
 

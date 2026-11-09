@@ -1,5 +1,6 @@
 // Editing in the PDF viewer (stage 7): the pages (an organizer to reorder, turn, delete, insert and
-// take pages out), annotations (highlight, draw, note, text, erase) and form fields.
+// take pages out), annotations (highlight, draw, note, text, erase) and form fields. Stage 10: the
+// page's own text and pictures (jay_docs::pdf_content), and filling in the blanks of a printed form.
 //
 // Every change goes to Rust (src-tauri/src/pdf_edit.rs → jay_docs::pdf_edit), which makes the new
 // PDF and opens it as a new document; the viewer is rebuilt around it (`rebuild`) where it was. So
@@ -10,7 +11,12 @@ import { t } from '../core/i18n.js';
 import { fetchPage } from '../core/pdf.js';
 
 const call = async (cmd, args) => (await import('@tauri-apps/api/core')).invoke(cmd, args);
-const COLORS = { highlight: '#ffd400', draw: '#e53935', note: '#ffd54f', text: '#1a73e8' };
+const COLORS = { highlight: '#ffd400', draw: '#e53935', note: '#ffd54f', text: '#1a73e8', fill: '#1a1a1a' };
+/** Tools that work on what the page itself draws (its lines, pictures and blanks). */
+const CONTENT_TOOLS = new Set(['editText', 'pictures', 'fill']);
+/** A CSS family like the PDF font's, for the box the text is edited in. */
+const familyOf = (font) => (/courier|mono|consola/i.test(font) ? 'monospace' : /times|serif|georgia|garamond|cambria|roman|book|minion|palatino/i.test(font) && !/sans/i.test(font) ? 'serif' : 'sans-serif');
+const round = (v) => Math.round(v * 100) / 100;
 const ORGANIZER_WIDTH = 150;
 
 /** The error a change came back with, in words. */
@@ -35,6 +41,8 @@ export function createPdfTools({ doc, sizes, pages, scale, scroller, editor, reb
   editor.tool ??= 'select';
   editor.colors ??= { ...COLORS };
   editor.textSize ??= 14;
+  editor.fillSize ??= 12;
+  editor.mark ??= 'check';
   editor.selected ??= new Set();
   let busy = false;
 
@@ -108,21 +116,44 @@ export function createPdfTools({ doc, sizes, pages, scale, scroller, editor, reb
     toolButton('note', 'note', t('Note')),
     toolButton('text', 'textTool', t('Text')),
     toolButton('erase', 'eraser', t('Erase an annotation')),
+    toolButton('editText', 'editText', t("Edit the page's text")),
+    toolButton('pictures', 'image', t('Move, replace or delete pictures')),
+    toolButton('fill', 'fillIn', t('Fill in')),
   ];
   const colorInput = h('input', { type: 'color', class: 'pdf-color', title: t('Color'), 'aria-label': t('Color') });
   colorInput.addEventListener('input', () => (editor.colors[editor.tool] = colorInput.value));
   const sizeSelect = h(
     'select',
-    { class: 'input', title: t('Text size'), 'aria-label': t('Text size'), onChange: (e) => (editor.textSize = Number(e.target.value)) },
-    [10, 12, 14, 18, 24, 32].map((s) => h('option', { value: String(s), selected: s === editor.textSize }, `${s} pt`)),
+    { class: 'input', title: t('Text size'), 'aria-label': t('Text size'), onChange: (e) => (editor[editor.tool === 'fill' ? 'fillSize' : 'textSize'] = Number(e.target.value)) },
+    [8, 10, 12, 14, 18, 24, 32].map((s) => h('option', { value: String(s) }, `${s} pt`)),
   );
+  // Fill in: the mark a box gets, and today's date for the blank being typed in.
+  const markSelect = h(
+    'select',
+    { class: 'input', title: t('Mark for boxes'), 'aria-label': t('Mark for boxes'), onChange: (e) => (editor.mark = e.target.value) },
+    h('option', { value: 'check', selected: editor.mark === 'check' }, '✓'),
+    h('option', { value: 'cross', selected: editor.mark === 'cross' }, '✗'),
+  );
+  const dateButton = h('button', { type: 'button', class: 'btn btn-secondary', title: t("Write today's date"), onPointerdown: (e) => e.preventDefault(), onClick: () => insertDate() }, t('Date'));
+  // Pictures: what to do with the chosen one.
+  const replaceButton = h('button', { type: 'button', class: 'btn btn-secondary', onClick: () => replacePicture() }, t('Replace…'));
+  const deletePictureButton = h('button', { type: 'button', class: 'btn btn-secondary', onClick: () => deletePicture() }, t('Delete'));
+  const fillGroup = h('span', { class: 'tb-group', role: 'group', 'aria-label': t('Fill in') }, markSelect, dateButton);
+  const pictureGroup = h('span', { class: 'tb-group', role: 'group', 'aria-label': t('Picture') }, replaceButton, deletePictureButton);
   function setTool(tool) {
     editor.tool = tool;
     for (const b of tools) b.setAttribute('aria-pressed', String(b.dataset.tool === tool));
     scroller.dataset.tool = tool;
     colorInput.hidden = !COLORS[tool];
     if (COLORS[tool]) colorInput.value = editor.colors[tool];
-    sizeSelect.hidden = tool !== 'text';
+    sizeSelect.hidden = tool !== 'text' && tool !== 'fill';
+    sizeSelect.value = String(tool === 'fill' ? editor.fillSize : editor.textSize);
+    fillGroup.hidden = tool !== 'fill';
+    pictureGroup.hidden = tool !== 'pictures';
+    replaceButton.disabled = deletePictureButton.disabled = !editor.picture;
+    const hints = { editText: t('Click a line of text to change it.'), pictures: t('Drag a picture to move it; its corner sizes it.'), fill: t('Click a blank or anywhere to write; click a box to mark it.') };
+    status.textContent = hints[tool] ?? editor.message ?? '';
+    layered.forEach(decorate);
   }
   const pagesButton = h('button', { type: 'button', class: 'btn btn-secondary', 'aria-pressed': String(!!editor.organizer), onClick: () => toggleOrganizer() }, h('span', { class: 'btn-icon', html: icons.pages }), t('Pages'));
   const undoButton = h('button', { type: 'button', class: 'icon-btn', title: t('Undo (Ctrl+Z)'), 'aria-label': t('Undo (Ctrl+Z)'), html: icons.undo, disabled: !editor.canUndo, onClick: () => undo() });
@@ -133,6 +164,8 @@ export function createPdfTools({ doc, sizes, pages, scale, scroller, editor, reb
     { class: 'doc-toolbar pdf-edit-bar', role: 'toolbar', 'aria-label': t('PDF editing') },
     pagesButton,
     h('span', { class: 'tb-group', role: 'group', 'aria-label': t('Tools') }, tools, colorInput, sizeSelect),
+    fillGroup,
+    pictureGroup,
     h('span', { class: 'tb-group', role: 'group', 'aria-label': t('History') }, undoButton),
     h('span', { class: 'dx-toolbar-end' }, dirtyMark, status, saveButton),
   );
@@ -183,6 +216,10 @@ export function createPdfTools({ doc, sizes, pages, scale, scroller, editor, reb
       };
       addEventListener('pointermove', move);
       addEventListener('pointerup', up);
+    } else if (editor.tool === 'fill' && !e.target.closest('.pdf-content > *, .pdf-inline')) {
+      e.preventDefault();
+      const [x, y] = pointOn(p, e);
+      writeAt(p, [x, y - editor.fillSize * 0.7, Math.max(60, sizes[p.index][0] - x - 20), editor.fillSize]);
     } else if (editor.tool === 'note' || editor.tool === 'text') {
       e.preventDefault();
       const at = pointOn(p, e);
@@ -273,6 +310,175 @@ export function createPdfTools({ doc, sizes, pages, scale, scroller, editor, reb
         }),
     );
     p.el.append(h('div', { class: 'pdf-annots' }, marks), h('div', { class: 'pdf-fields' }, inputs));
+    p.el.querySelector('.pdf-content')?.remove();
+    if (CONTENT_TOOLS.has(editor.tool)) {
+      const content = contentOf(p);
+      if (content) p.el.append(h('div', { class: 'pdf-content' }, contentLayer(p, content)));
+    }
+  }
+
+  // ----- What the page itself draws: lines to edit, pictures to move, blanks to fill -----
+  const contents = new Map();
+  /** The page's content if it's here; otherwise asks for it and decorates the page when it comes. */
+  function contentOf(p) {
+    const known = contents.get(p.index);
+    if (known !== undefined) return known;
+    contents.set(p.index, null);
+    call('pdf_page_content', { doc, page: p.index })
+      .then((c) => contents.set(p.index, c))
+      .catch((error) => {
+        contents.set(p.index, { lines: [], pictures: [], blanks: [] });
+        status.textContent = problem(error);
+      })
+      .finally(() => layered.has(p) && CONTENT_TOOLS.has(editor.tool) && decorate(p));
+    return null;
+  }
+
+  function contentLayer(p, content) {
+    if (editor.tool === 'editText') {
+      return content.lines.map((line) => {
+        const b = h('button', { type: 'button', class: 'pdf-line', title: line.text, 'aria-label': t('Edit: {what}', { what: line.text }) });
+        place(b, line.rect);
+        b.addEventListener('click', () => editLine(p, line, b));
+        return b;
+      });
+    }
+    if (editor.tool === 'fill') {
+      return content.blanks.map((blank) => {
+        const b = h('button', { type: 'button', class: 'pdf-blank', 'data-kind': blank.kind, 'aria-label': blank.kind === 'box' ? t('Mark this box') : t('Write here') });
+        place(b, blank.rect);
+        b.addEventListener('click', () => (blank.kind === 'box' ? markBox(p, blank.rect) : writeAt(p, blank.rect)));
+        return b;
+      });
+    }
+    return content.pictures.map((pic) => pictureBox(p, pic));
+  }
+
+  /** A text box over `rect` (points on the page); `done(text)` gets what was typed. */
+  function inlineInput(p, rect, { value = '', size, family = 'sans-serif', done, closed }) {
+    scroller.querySelector('.pdf-inline')?.blur();
+    const input = h('input', { type: 'text', class: 'pdf-inline', spellcheck: 'false', 'aria-label': t('Text') });
+    input.value = value;
+    place(input, rect);
+    input.style.setProperty('--size', size);
+    input.style.fontFamily = family;
+    let finished = false;
+    const finish = (keep) => {
+      if (finished) return;
+      finished = true;
+      input.remove();
+      closed?.();
+      if (keep && input.value !== value) done(input.value);
+    };
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') finish(true);
+      else if (e.key === 'Escape') finish(false);
+    });
+    input.addEventListener('blur', () => finish(true));
+    p.el.append(input);
+    input.focus();
+    input.select();
+  }
+
+  function editLine(p, line, button) {
+    button.hidden = true;
+    const [x, y, w, hgt] = line.rect;
+    inlineInput(p, [x - 2, y, Math.max(w + 40, 80), hgt], {
+      value: line.text,
+      size: line.size,
+      family: familyOf(line.font),
+      done: (text) => change('pdf_edit_content', { op: { op: 'replaceText', page: p.index, line: line.index, text } }),
+      closed: () => (button.hidden = false),
+    });
+  }
+
+  /** Writes on the page at `rect`: the text sits on its bottom, as on a printed line. */
+  function writeAt(p, [x, y, w, hgt]) {
+    const size = editor.fillSize;
+    const baseline = y + hgt;
+    inlineInput(p, [x, baseline - size * 1.3, Math.max(w, 60), size * 1.3], {
+      size,
+      done: (text) => text.trim() && apply({ op: 'text', page: p.index, at: [round(x - 2), round(baseline - 3 - size * 0.8)], text, size, color: editor.colors.fill }),
+    });
+  }
+
+  function insertDate() {
+    const input = scroller.querySelector('.pdf-inline');
+    if (!input) {
+      status.textContent = t('Click a blank first; the date goes in it.');
+      return;
+    }
+    const date = new Date().toLocaleDateString(document.documentElement.lang || undefined);
+    input.setRangeText(date, input.selectionStart, input.selectionEnd, 'end');
+    input.focus();
+  }
+
+  /** A ✓ or ✗ drawn in a box. */
+  function markBox(p, [x, y, w, hgt]) {
+    const at = (fx, fy) => [round(x + fx * w), round(y + fy * hgt)];
+    const strokes = editor.mark === 'cross' ? [[at(0.22, 0.22), at(0.78, 0.78)], [at(0.78, 0.22), at(0.22, 0.78)]] : [[at(0.2, 0.55), at(0.42, 0.78), at(0.82, 0.22)]];
+    apply({ op: 'ink', page: p.index, strokes, color: editor.colors.fill, width: round(Math.max(1, w * 0.12)) });
+  }
+
+  // Pictures: drag to move, drag the corner to size (keeping the shape unless Shift is held).
+  function pictureBox(p, pic) {
+    const chosen = editor.picture?.page === p.index && editor.picture.index === pic.index;
+    const box = h('div', { class: 'pdf-picture', tabindex: '0', role: 'button', 'aria-pressed': String(chosen), 'aria-label': t('Picture {n}', { n: pic.index + 1 }) }, h('span', { class: 'pdf-picture-handle', 'aria-hidden': 'true' }));
+    place(box, pic.rect);
+    const select = () => {
+      editor.picture = { page: p.index, index: pic.index };
+      for (const other of scroller.querySelectorAll('.pdf-picture')) other.setAttribute('aria-pressed', String(other === box));
+      replaceButton.disabled = deletePictureButton.disabled = false;
+    };
+    box.addEventListener('focus', select);
+    box.addEventListener('keydown', (e) => {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        deletePicture();
+      }
+    });
+    box.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || busy) return;
+      e.preventDefault();
+      e.stopPropagation();
+      box.focus();
+      select();
+      const resize = e.target.classList.contains('pdf-picture-handle');
+      const start = pointOn(p, e);
+      let rect = [...pic.rect];
+      const move = (ev) => {
+        const [px, py] = pointOn(p, ev);
+        const [dx, dy] = [px - start[0], py - start[1]];
+        const [x, y, w, hgt] = pic.rect;
+        if (!resize) rect = [x + dx, y + dy, w, hgt];
+        else {
+          const nw = Math.max(4, w + dx);
+          rect = [x, y, nw, ev.shiftKey ? Math.max(4, hgt + dy) : nw * (hgt / w)];
+        }
+        place(box, rect);
+      };
+      const up = async () => {
+        removeEventListener('pointermove', move);
+        removeEventListener('pointerup', up);
+        if (!rect.some((v, i) => Math.abs(v - pic.rect[i]) > 0.5)) return;
+        if (!(await change('pdf_edit_content', { op: { op: 'moveImage', page: p.index, index: pic.index, rect: rect.map(round) } }))) place(box, pic.rect);
+      };
+      addEventListener('pointermove', move);
+      addEventListener('pointerup', up);
+    });
+    return box;
+  }
+
+  function replacePicture() {
+    const pic = editor.picture;
+    if (pic) change('pdf_replace_image', { page: pic.page, index: pic.index });
+  }
+  function deletePicture() {
+    const pic = editor.picture;
+    if (!pic) return;
+    editor.picture = null;
+    change('pdf_edit_content', { op: { op: 'deleteImage', page: pic.page, index: pic.index } });
   }
   function layer(p) {
     layered.add(p);

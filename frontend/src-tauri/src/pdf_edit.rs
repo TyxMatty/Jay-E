@@ -4,6 +4,7 @@
 
 use crate::pdf::Docs;
 use jay_docs::pdf::PdfDocument;
+use jay_docs::pdf_content::{self, ContentOp, PageContent};
 use jay_docs::pdf_edit::{self, AnnotInfo, EditError, Field, Op};
 use jay_docs::text::Stamp;
 use serde::Serialize;
@@ -195,6 +196,31 @@ pub async fn pdf_annotations(doc: u32, app: AppHandle) -> Result<Vec<Vec<AnnotIn
 pub async fn pdf_fields(doc: u32, app: AppHandle) -> Result<Vec<Field>, EditError> {
     let bytes = current(&app, doc)?;
     tauri::async_runtime::spawn_blocking(move || pdf_edit::fields(&bytes)).await.map_err(err)?
+}
+
+/// What page `page` draws itself: its text lines, pictures and blanks to fill in.
+// shortcut: reads the whole file per page asked; cache the parsed document if big PDFs feel slow.
+#[tauri::command]
+pub async fn pdf_page_content(doc: u32, page: usize, app: AppHandle) -> Result<PageContent, EditError> {
+    let bytes = current(&app, doc)?;
+    tauri::async_runtime::spawn_blocking(move || pdf_content::page_content(&bytes, page)).await.map_err(err)?
+}
+
+#[tauri::command]
+pub async fn pdf_edit_content(doc: u32, op: ContentOp, app: AppHandle) -> Result<Edited, EditError> {
+    change(app, doc, move |bytes| pdf_content::apply(bytes, &op)).await
+}
+
+/// Puts a picture the person picks in place of picture `index` of page `page`. `None` if they cancel.
+#[tauri::command]
+pub async fn pdf_replace_image(doc: u32, page: usize, index: usize, app: AppHandle) -> Result<Option<Edited>, EditError> {
+    let dialog = app.dialog().file().add_filter("Images", &["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "heic", "avif"]);
+    let Some(file) = dialog.blocking_pick_file().and_then(|p| p.into_path().ok()) else { return Ok(None) };
+    let picture = tauri::async_runtime::spawn_blocking(move || jay_docs::image::decode(&file)).await.map_err(err)?.map_err(|e| err(format!("{e:?}")))?;
+    // Big photos are shrunk: a page doesn't need more than this.
+    let picture = if picture.width().max(picture.height()) > 3000 { picture.resize(3000, 3000, image::imageops::FilterType::Lanczos3) } else { picture };
+    let rgba = picture.to_rgba8();
+    change(app, doc, move |bytes| pdf_content::replace_image(bytes, page, index, &rgba)).await.map(Some)
 }
 
 /// Forgets a closed document's edits (pdf_close).

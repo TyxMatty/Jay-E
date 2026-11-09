@@ -56,6 +56,8 @@ export const icons = {
   pen: svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>'),
   note: svg('<path d="M4 4h16v12l-4 4H4z"/><path d="M16 20v-4h4M8 9h8M8 13h5"/>'),
   textTool: svg('<path d="M4 7V5h16v2M12 5v14M9 19h6"/>'),
+  editText: svg('<path d="M3 7V5h11v2M8.5 5v14M6 19h5"/><path d="m14 20 6.5-6.5a1.4 1.4 0 0 0-2-2L12 18v2z"/>'),
+  fillIn: svg('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m7.5 12 3 3 6-6"/>'),
   eraser: svg('<path d="m7 21-4-4 10-10 7 7-7 7z"/><path d="M14 21h7M6 13l7 7"/>'),
   rowAbove: svg('<rect x="3" y="10" width="18" height="11" rx="2"/><path d="M3 15.5h18M12 2v6M9 5h6"/>'),
   rowBelow: svg('<rect x="3" y="3" width="18" height="11" rx="2"/><path d="M3 8.5h18M12 16v6M9 19h6"/>'),

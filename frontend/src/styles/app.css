@@ -2507,6 +2507,15 @@ fieldset > h3 {
   gap: 4px 8px;
 }
 
+/* The text size and the box mark are short: no wider than what they say. */
+.pdf-edit-bar select.input {
+  width: auto;
+}
+
+.pdf-edit-bar .pdf-color {
+  flex: none;
+}
+
 .pdf-edit-bar .btn {
   display: inline-flex;
   align-items: center;
@@ -2548,6 +2557,12 @@ fieldset > h3 {
 .pdf-scroll[data-tool='draw'] .pdf-text,
 .pdf-scroll[data-tool='note'] .pdf-text,
 .pdf-scroll[data-tool='text'] .pdf-text,
+.pdf-scroll[data-tool='editText'] .pdf-text,
+.pdf-scroll[data-tool='pictures'] .pdf-text,
+.pdf-scroll[data-tool='fill'] .pdf-text,
+.pdf-scroll[data-tool='editText'] .pdf-links,
+.pdf-scroll[data-tool='pictures'] .pdf-links,
+.pdf-scroll[data-tool='fill'] .pdf-links,
 .pdf-scroll[data-tool='draw'] .pdf-links,
 .pdf-scroll[data-tool='note'] .pdf-links,
 .pdf-scroll[data-tool='text'] .pdf-links,
@@ -2568,7 +2583,9 @@ fieldset > h3 {
 }
 
 .pdf-annots > button,
-.pdf-fields > * {
+.pdf-fields > *,
+.pdf-content > *,
+.pdf-inline {
   position: absolute;
   left: calc(var(--x) * var(--scale) * 1px);
   top: calc(var(--y) * var(--scale) * 1px);
@@ -2597,6 +2614,76 @@ fieldset > h3 {
 
 .pdf-scroll[data-tool='erase'] .pdf-annots > button:hover {
   background: rgb(229 57 53 / 0.18);
+}
+
+/* The page's own content (stage 10): lines to edit, pictures to move, blanks to fill. */
+.pdf-scroll[data-tool='fill'] .pdf-page {
+  cursor: text;
+}
+
+.pdf-content > button {
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  cursor: text;
+}
+
+.pdf-line:hover,
+.pdf-line:focus-visible {
+  outline: 1px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.pdf-blank {
+  outline: 1px dashed color-mix(in srgb, var(--accent) 70%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.pdf-blank[data-kind='box'] {
+  cursor: pointer;
+}
+
+.pdf-blank:hover,
+.pdf-blank:focus-visible {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.pdf-picture {
+  box-sizing: border-box;
+  outline: 1px dashed color-mix(in srgb, var(--accent) 70%, transparent);
+  cursor: move;
+  touch-action: none;
+}
+
+.pdf-picture[aria-pressed='true'] {
+  outline: 2px solid var(--accent);
+}
+
+.pdf-picture-handle {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #fff;
+  border-radius: 3px;
+  background: var(--accent);
+  cursor: nwse-resize;
+}
+
+/* The box a line is edited or a blank written in: white, so the old text doesn't show through. */
+.pdf-inline {
+  z-index: 2;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0 2px;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  background: #fff;
+  color: #111;
+  font-size: calc(var(--size) * var(--scale) * 1px);
+  line-height: 1;
 }
 
 /* Form fields: the page draws the value; the box shows it while it's edited. */
