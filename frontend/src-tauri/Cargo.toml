@@ -1,6 +1,6 @@
 [package]
 name = "jay-e"
-version = "0.1.0"
+version = "0.2.0"
 description = "Jay-E — documents, images and video: read, edit and convert"
 authors = ["TyxMatty"]
 license = "MIT"
