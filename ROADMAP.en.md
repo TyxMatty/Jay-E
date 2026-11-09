@@ -54,7 +54,7 @@ Every stage ends with something testable. The full plan, with the "done when" ch
   - [x] PDF: compress (pictures at 150 dpi at the largest size the page shows them, in JPEG when that's smaller); a drawn signature, kept for next time and put on with a click; redaction for good (the text, the pictures' pixels and the annotations under the box leave the file); make it searchable with Windows' own OCR (`Windows.Media.Ocr`); pictures into one PDF and pages as pictures (in the converter).
   - [x] PDF, editing: change the PDF's own text (words and sentences replaced in place, in the file's font, and the old text really removed); fill in the blanks of any PDF, even without form fields (write on lines and in boxes, tick ✓ or ✗, a date), with the fields found automatically; replace, move or delete a picture on the page.
   - [x] Documents: find and replace (Ctrl+F, Ctrl+H, undone in one step); word count; spelling in the file's language through Windows' spell checker, with suggestions on right-click; compare with an older version, paragraph by paragraph and word by word.
-  - [x] Converter: read HTML; LaTeX to PDF; PDF pages as PNG or JPEG; pictures into one PDF; a watched folder, whose new files are converted as they arrive.
+  - [x] Converter: PDF to DOCX (paragraphs, headings, bold and italic, pictures and page breaks rebuilt from the PDF's lines); read HTML; LaTeX to PDF; PDF pages as PNG or JPEG; pictures into one PDF; a watched folder, whose new files are converted as they arrive.
 
 ## To do (found along the way)
 
@@ -62,6 +62,9 @@ Every stage ends with something testable. The full plan, with the "done when" ch
 
 - [x] Publish the first release: [v0.1.0](https://github.com/TyxMatty/Jay-E/releases/tag/v0.1.0) on 2026-11-07 (17 MB installer, SHA-256 on GitHub).
 - [ ] Try updating from one version to the next: install v0.1.0 and let it find v0.2.0.
+- [x] Document pictures and the image viewer didn't load in the installed app (the CSP didn't let `<img>` use `jaye:`; dev mode doesn't apply the CSP). Fixed after v0.2.0.
+- [ ] Check every release in a release build (`npx tauri build --no-bundle`) before publishing: the CSP only applies there.
+- [ ] PDF to DOCX: formulas on a line of their own (fractions, sums) come out in pieces; tables become their rows' text.
 - [ ] PDF: redacting text inside groups (Form XObjects); today redaction is refused there, changing nothing.
 - [ ] Spelling: a document in more than one language is checked only in the file's language; without a Windows dictionary for it, the window's spell checker is used.
 - [ ] Measure the PDF reader's first page in a release build (the 150 ms goal passes in 3 of 5 PDFs in dev).

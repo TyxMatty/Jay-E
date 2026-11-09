@@ -456,6 +456,7 @@ export default {
   "Delete row": "Apagar linha",
   "Delete column": "Apagar coluna",
   // Stage 10: PDF redaction, signature, compress and OCR; converter; find, spelling, compare.
+  "DOCX (Word)": "DOCX (Word)",
   "PNG (a picture per page)": "PNG (uma imagem por página)",
   "JPEG (a picture per page)": "JPEG (uma imagem por página)",
   "LaTeX": "LaTeX",

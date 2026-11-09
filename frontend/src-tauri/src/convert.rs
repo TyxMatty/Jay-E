@@ -72,7 +72,7 @@ pub fn can_become(kind: Kind, to: &str) -> bool {
         Kind::Document | Kind::Markdown => matches!(to, "docx" | "md" | "html" | "txt"),
         Kind::Video => matches!(to, "mp4" | "m4a"),
         Kind::Audio => to == "m4a",
-        Kind::Pdf => matches!(to, "txt" | "png" | "jpg"),
+        Kind::Pdf => matches!(to, "txt" | "docx" | "png" | "jpg"),
         Kind::Latex => to == "pdf",
         _ => false,
     }
@@ -253,6 +253,17 @@ fn convert_one(path: &Path, to: &str, out: &Path, quality: u8, progress: &mut dy
             };
             let _ = std::fs::remove_dir_all(&dir);
             result
+        }
+        Kind::Pdf if to == "docx" => {
+            // Opened first: a password, a damaged file or one too big fails the same as for text.
+            drop(open_pdf(path)?);
+            let bytes = std::fs::read(path).map_err(io)?;
+            let document = jay_docs::pdf_content::to_document(&bytes).map_err(|e| match e {
+                jay_docs::pdf_edit::EditError::Encrypted => Failure::Other { kind: "password", message: String::new() },
+                e => Failure::Other { kind: "invalid", message: format!("{e:?}") },
+            })?;
+            crate::doc::export_to(&document, "docx", out).map_err(Failure::Doc)?;
+            Ok(out.to_path_buf())
         }
         Kind::Pdf if to != "txt" => {
             let pdf = open_pdf(path)?;
@@ -482,6 +493,9 @@ mod tests {
         let first = convert_one(&pdf, "png", &out.join("two.png"), 80, &mut none, &stop).unwrap();
         assert_eq!(first, out.join("two 1.png"));
         assert!(out.join("two 2.png").exists() && !out.join("two 3.png").exists());
+        let docx = convert_one(&pdf, "docx", &out.join("two.docx"), 80, &mut none, &stop).unwrap();
+        let back = jay_docs::doc::read(&docx, "docx").unwrap();
+        assert_eq!(back.images.len(), 2, "both pages' pictures");
         assert!(passing("~$report.docx") && passing("photo.jpg.crdownload") && !passing("photo.jpg"));
         assert_eq!(listing(&dir).len(), 4, "{:?}", listing(&dir));
         let _ = std::fs::remove_dir_all(&dir);

@@ -241,6 +241,11 @@ impl Geo {
     }
 
     /// A box `[x, y, w, h]` on the shown page as a user-space rectangle.
+    /// The shown page's width, in points.
+    pub(crate) fn width(&self) -> f32 {
+        if self.rot % 180 == 90 { self.y1 - self.y0 } else { self.x1 - self.x0 }
+    }
+
     pub(crate) fn user_rect(&self, [x, y, w, h]: [f32; 4]) -> [f32; 4] {
         bbox(&[self.to_user([x, y]), self.to_user([x + w, y + h])], 0.0)
     }

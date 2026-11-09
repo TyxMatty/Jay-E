@@ -19,6 +19,7 @@ test('the chosen format, or the first', () => {
   assert.equal(outputOf({ kind: 'document' }, { document: 'html' }), 'html');
   assert.equal(outputOf({ kind: 'latex' }, {}), 'pdf');
   assert.equal(outputOf({ kind: 'pdf' }, { pdf: 'png' }), 'png');
+  assert.deepEqual(GROUPS.find((g) => g.key === 'pdf').to.map(([to]) => to), ['txt', 'docx', 'png', 'jpg']);
   assert.equal(outputOf({ kind: 'text' }, {}), null);
 });
 

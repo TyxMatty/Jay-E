@@ -54,7 +54,7 @@ Cada etapa termina com algo testável. O plano completo, com os testes de "pront
   - [x] PDF: comprimir (imagens em 150 dpi no maior tamanho em que a página as mostra, em JPEG quando fica menor); uma assinatura desenhada, guardada para a próxima vez e posta com um clique; tarjar de verdade (o texto, os pixels das imagens e as anotações embaixo da caixa saem do arquivo); deixar pesquisável com o OCR do próprio Windows (`Windows.Media.Ocr`); imagens num PDF só e páginas como imagens (no conversor).
   - [x] PDF, editar: mudar o texto do próprio PDF (palavras e frases trocadas no lugar, na fonte do arquivo, e o texto antigo removido de verdade); preencher os espaços de qualquer PDF, mesmo sem campos de formulário (escrever em linhas e caixas, marcar ✓ ou ✗, data), com os campos achados sozinhos; trocar, mover ou apagar uma imagem da página.
   - [x] Documentos: localizar e substituir (Ctrl+F, Ctrl+H, desfeito num passo só); contar palavras; ortografia no idioma do arquivo pelo corretor do Windows, com sugestões no clique direito; comparar com uma versão anterior, parágrafo por parágrafo e palavra por palavra.
-  - [x] Conversor: ler HTML; LaTeX para PDF; páginas de PDF como PNG ou JPEG; imagens num PDF só; uma pasta vigiada, cujos arquivos novos são convertidos quando chegam.
+  - [x] Conversor: PDF para DOCX (os parágrafos, títulos, negrito e itálico, imagens e quebras de página refeitos a partir das linhas do PDF); ler HTML; LaTeX para PDF; páginas de PDF como PNG ou JPEG; imagens num PDF só; uma pasta vigiada, cujos arquivos novos são convertidos quando chegam.
 
 ## Pendências (achadas no caminho)
 
@@ -62,6 +62,9 @@ Cada etapa termina com algo testável. O plano completo, com os testes de "pront
 
 - [x] Publicar o primeiro release: [v0.1.0](https://github.com/TyxMatty/Jay-E/releases/tag/v0.1.0) em 07/11/2026 (instalador de 17 MB, SHA-256 no GitHub).
 - [ ] Testar a atualização de uma versão para a seguinte: instalar o v0.1.0 e deixar ele achar o v0.2.0.
+- [x] As imagens dos documentos e o visualizador de imagens não carregavam no app instalado (o CSP não deixava `<img>` usar o `jaye:`; o modo de dev não aplica o CSP). Consertado depois do v0.2.0.
+- [ ] Conferir cada release num build de release (`npx tauri build --no-bundle`) antes de publicar: o CSP só vale ali.
+- [ ] PDF para DOCX: fórmulas em linha própria (frações, somatórios) saem em pedaços; tabelas viram o texto das linhas.
 - [ ] PDF: tarjar texto que está dentro de grupos (Form XObjects); hoje a tarja é recusada ali, sem mudar nada.
 - [ ] Ortografia: um documento em mais de um idioma é conferido só no idioma do arquivo; sem dicionário do Windows para ele, vale o corretor da janela.
 - [ ] Medir a primeira página do leitor de PDF num build de release (a meta de 150 ms passa em 3 de 5 PDFs em dev).

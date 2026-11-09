@@ -1119,6 +1119,181 @@ pub fn images_to_pdf(pictures: &[(image::DynamicImage, Option<Vec<u8>>)]) -> Res
     save(&mut doc)
 }
 
+/// Bold and italic from a font's name ("Calibri-BoldItalic", "ABCDEF+Times-Oblique").
+fn style_of(font: &str) -> crate::doc::Style {
+    let f = font.to_ascii_lowercase();
+    crate::doc::Style { bold: ["bold", "black", "heavy", "semibold", "demi"].iter().any(|w| f.contains(w)), italic: f.contains("italic") || f.contains("oblique"), ..Default::default() }
+}
+
+/// A line of text for `to_document`.
+struct Row {
+    inlines: Vec<crate::doc::Inline>,
+    text: String,
+    rect: [f32; 4],
+    size: f32,
+}
+
+enum Item {
+    Row(Row),
+    Picture(usize, [f32; 4]),
+}
+
+/// The paragraph `to_document` is building: its inlines, heading level, alignment, last line and size.
+type Building = Option<(Vec<crate::doc::Inline>, Option<u8>, crate::doc::Align, [f32; 4], f32)>;
+
+fn finish(current: &mut Building, blocks: &mut Vec<crate::doc::Block>) {
+    use crate::doc::Block;
+    if let Some((inlines, heading, align, _, _)) = current.take() {
+        let inlines = crate::doc::merge_runs(inlines);
+        blocks.push(match heading {
+            Some(level) => Block::Heading { level, inlines },
+            None => Block::Paragraph { inlines, align },
+        });
+    }
+}
+
+/// A PDF as a document, for "PDF → DOCX": the text lines joined back into paragraphs (a line that
+/// reaches the right margin or ends in a broken word goes on in the next one), bigger text as headings, bold and italic
+/// from the fonts' names, centered lines centered, the pictures Jay-E can read where they were, and
+/// a page break between pages. The text and pictures come over, not the exact layout: a table
+/// becomes its rows' text, and drawings that aren't pictures are left out.
+pub fn to_document(bytes: &[u8]) -> Result<crate::doc::Document, EditError> {
+    use crate::doc::{Align, Block, Document, Inline, merge_runs};
+    let doc = load(bytes)?;
+    let pages: Vec<ObjectId> = doc.get_pages().into_values().collect();
+    let mut out = Document::default();
+    let mut all: Vec<(Vec<Item>, f32)> = vec![];
+    for &id in &pages {
+        let g = geo(&doc, id);
+        let Ok(s) = scan(&doc, id) else {
+            all.push((vec![], g.width()));
+            continue;
+        };
+        let fonts = doc.get_page_fonts(id).unwrap_or_default();
+        let x = xobjects(&doc, id);
+        let mut items: Vec<Item> = vec![];
+        for line in lines_of(&s.pieces) {
+            let mut inlines = vec![];
+            let mut prev: Option<[f32; 2]> = None;
+            for &i in &line {
+                let p = &s.pieces[i];
+                let (Some(first), Some(last)) = (p.glyphs.first(), p.glyphs.last()) else { continue };
+                let text = line_text(&s.pieces, &[i]);
+                if text.is_empty() {
+                    continue;
+                }
+                let font = fonts.get(&p.font).and_then(|d| d.get(b"BaseFont").ok()).and_then(name).unwrap_or_default();
+                if prev.is_some_and(|b| first.a[0] - b[0] > 0.2 * p.height.max(1.0)) {
+                    inlines.push(Inline::text(" "));
+                }
+                inlines.push(Inline::Text { text, style: style_of(&font) });
+                prev = Some(last.b);
+            }
+            let (rect, size) = line_rect(&s.pieces, &line);
+            let text = line_text(&s.pieces, &line);
+            if !text.is_empty() {
+                items.push(Item::Row(Row { inlines: merge_runs(inlines), text, rect, size }));
+            }
+        }
+        // Pictures go before the first line below their top.
+        for im in s.images.iter().filter(|im| !im.inline) {
+            let Some(stream) = s.ops[im.op].operands.first().and_then(name).and_then(|k| x.get(k.as_bytes())).and_then(|o| doc.get_object(*o).ok()).and_then(|o| o.as_stream().ok()) else { continue };
+            let Some(picture) = pixels(&doc, stream) else { continue };
+            let mut png = vec![];
+            if picture.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).is_err() {
+                continue;
+            }
+            out.images.push(crate::doc::Image { mime: "image/png".into(), bytes: png });
+            let at = items.iter().position(|it| matches!(it, Item::Row(r) if r.rect[1] >= im.rect[1])).unwrap_or(items.len());
+            items.insert(at, Item::Picture(out.images.len() - 1, im.rect));
+        }
+        all.push((items, g.width()));
+    }
+
+    // The body text's size: the one most characters have.
+    let mut sizes: HashMap<i32, usize> = HashMap::new();
+    for (items, _) in &all {
+        for it in items {
+            if let Item::Row(r) = it {
+                *sizes.entry((r.size * 2.0).round() as i32).or_default() += r.text.chars().count();
+            }
+        }
+    }
+    let body = sizes.iter().max_by_key(|&(s, n)| (*n, -*s)).map_or(12.0, |(s, _)| *s as f32 / 2.0);
+    // Bigger sizes are headings, the biggest first.
+    let mut bigger: Vec<i32> = sizes.keys().copied().filter(|&s| s as f32 / 2.0 >= body * 1.15).collect();
+    bigger.sort_unstable_by(|a, b| b.cmp(a));
+    let level = |size: f32| bigger.iter().position(|&s| (s as f32 / 2.0 - size).abs() < 0.3).map(|i| (i + 1).min(3) as u8);
+
+    let pages_count = all.len();
+    for (n, (items, width)) in all.into_iter().enumerate() {
+        let rows = items.iter().filter_map(|it| if let Item::Row(r) = it { Some(r) } else { None });
+        let left = rows.clone().map(|r| r.rect[0]).fold(f32::MAX, f32::min);
+        let right = rows.map(|r| r.rect[0] + r.rect[2]).fold(f32::MIN, f32::max);
+        let mut current: Building = None;
+        for it in &items {
+            let r = match it {
+                Item::Picture(index, rect) => {
+                    finish(&mut current, &mut out.blocks);
+                    out.blocks.push(Block::Paragraph { inlines: vec![Inline::Image { index: *index, width: Some(rect[2]), height: Some(rect[3]) }], align: Align::Start });
+                    continue;
+                }
+                Item::Row(r) => r,
+            };
+            let heading = level(r.size);
+            let center = r.rect[0] + r.rect[2] / 2.0;
+            let centered = (center - width / 2.0).abs() < width * 0.03 && r.rect[0] > left + 3.0 * r.size && r.rect[0] + r.rect[2] < right - 3.0 * r.size;
+            let align = if centered { Align::Center } else { Align::Start };
+            let joins = current.as_ref().is_some_and(|(inlines, h, a, last, size)| {
+                let down = r.rect[1] - last[1];
+                let broken = matches!(inlines.last(), Some(Inline::Text { text, .. }) if text.ends_with('-')) && r.text.chars().next().is_some_and(char::is_lowercase);
+                *h == heading
+                    && (size - r.size).abs() < 0.6
+                    && *a == align
+                    && down > 0.0
+                    && down <= 1.7 * r.size
+                    // The line before ran to the margin: the sentence goes on here.
+                    && (centered || broken || (last[0] + last[2] >= right - 2.5 * r.size && (r.rect[0] - left).abs() < 2.0 * r.size))
+            });
+            // A superscript, a subscript or a bit of a formula on the same row, after the text before.
+            let same_row = current.as_ref().is_some_and(|(_, _, _, last, _)| {
+                let overlap = (last[1] + last[3]).min(r.rect[1] + r.rect[3]) - last[1].max(r.rect[1]);
+                let gap = r.rect[0] - (last[0] + last[2]);
+                overlap > 0.4 * r.rect[3].min(last[3]) && gap > -1.0 && gap < 4.0 * r.size
+            });
+            match current.as_mut() {
+                Some((inlines, _, _, last, _)) if same_row => {
+                    if r.rect[0] - (last[0] + last[2]) > 0.25 * r.size {
+                        inlines.push(Inline::text(" "));
+                    }
+                    inlines.extend(r.inlines.iter().cloned());
+                    let (x1, y1) = ((last[0] + last[2]).max(r.rect[0] + r.rect[2]), (last[1] + last[3]).max(r.rect[1] + r.rect[3]));
+                    *last = [last[0].min(r.rect[0]), last[1].min(r.rect[1]), x1 - last[0].min(r.rect[0]), y1 - last[1].min(r.rect[1])];
+                }
+                Some((inlines, _, _, last, _)) if joins => {
+                    // A word broken at the end of the line comes back together.
+                    let hyphen = matches!(inlines.last(), Some(Inline::Text { text, .. }) if text.ends_with('-') && text.chars().rev().nth(1).is_some_and(char::is_alphabetic)) && r.text.chars().next().is_some_and(char::is_lowercase);
+                    match inlines.last_mut() {
+                        Some(Inline::Text { text, .. }) if hyphen => drop(text.pop()),
+                        _ => inlines.push(Inline::text(" ")),
+                    }
+                    inlines.extend(r.inlines.iter().cloned());
+                    *last = r.rect;
+                }
+                _ => {
+                    finish(&mut current, &mut out.blocks);
+                    current = Some((r.inlines.clone(), heading, align, r.rect, r.size));
+                }
+            }
+        }
+        finish(&mut current, &mut out.blocks);
+        if n + 1 < pages_count {
+            out.blocks.push(Block::PageBreak);
+        }
+    }
+    Ok(out)
+}
+
 /// Puts `picture` (RGBA) in place of picture `index`, fitted inside its box, centered.
 pub fn replace_image(bytes: &[u8], page: usize, index: usize, picture: &image::RgbaImage) -> Result<Vec<u8>, EditError> {
     let mut doc = load(bytes)?;
@@ -1289,6 +1464,50 @@ mod tests {
     }
 
     #[test]
+    fn a_pdf_becomes_paragraphs_headings_and_pictures() {
+        use crate::doc::{Align, Block, Inline};
+        // Page 1: a wrapped paragraph (with a word broken by a hyphen), a short line, a centered
+        // one. Page 2: the form sample's heading, bold line and picture.
+        let mut doc = Document::load_mem(&sample()).unwrap();
+        let first = doc.get_pages()[&1];
+        let helv = doc.get_dictionary(first).unwrap().get(b"Resources").unwrap().as_dict().unwrap().get(b"Font").unwrap().as_dict().unwrap().get(b"F1").unwrap().clone();
+        let a = "Some words that run all the way to the right margin of";
+        let b = "this page, and on into the next line of the para-";
+        let content = format!("BT /F1 12 Tf 72 700 Td ({a}) Tj ET\nBT /F1 12 Tf 72 686 Td ({b}) Tj ET\nBT /F1 12 Tf 72 672 Td (graph.) Tj ET\nBT /F1 12 Tf 72 640 Td (A short line.) Tj ET\nBT /F1 12 Tf 278.3 600 Td (Centered) Tj ET\nBT /F1 12 Tf 72 560 Td (E = mc) Tj ET\nBT /F1 8 Tf 111 565 Td (2) Tj ET\nBT /F1 12 Tf 116 560 Td (, it says.) Tj ET");
+        let content = doc.add_object(Stream::new(Dictionary::new(), content.into_bytes()));
+        let pages_id = doc.get_dictionary(first).unwrap().get(b"Parent").unwrap().as_reference().unwrap();
+        let page = doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id, "Contents" => content, "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()], "Resources" => dictionary! { "Font" => dictionary! { "F1" => helv } } });
+        let pages = doc.get_dictionary_mut(pages_id).unwrap();
+        pages.set("Kids", vec![Object::Reference(page), Object::Reference(first)]);
+        pages.set("Count", 2);
+        let pdf = save(&mut doc).unwrap();
+
+        let d = to_document(&pdf).unwrap();
+        let text = |b: &Block| match b {
+            Block::Heading { inlines, .. } | Block::Paragraph { inlines, .. } => crate::doc::plain(inlines),
+            _ => String::new(),
+        };
+        assert_eq!(text(&d.blocks[0]), format!("{a} this page, and on into the next line of the paragraph."));
+        assert_eq!(text(&d.blocks[1]), "A short line.");
+        assert!(matches!(&d.blocks[2], Block::Paragraph { align: Align::Center, .. }), "{:?}", d.blocks[2]);
+        assert_eq!(text(&d.blocks[3]), "E = mc2, it says.");
+        assert_eq!(d.blocks[4], Block::PageBreak);
+        assert!(matches!(&d.blocks[5], Block::Heading { level: 1, .. }) && text(&d.blocks[5]) == "Application", "{:?}", d.blocks[5]);
+        let picture = d.blocks.iter().find_map(|b| match b {
+            Block::Paragraph { inlines, .. } => inlines.iter().find_map(|i| if let Inline::Image { width, height, .. } = i { Some((*width, *height)) } else { None }),
+            _ => None,
+        });
+        assert_eq!(picture, Some((Some(100.0), Some(50.0))));
+        assert_eq!(d.images.len(), 1);
+        let bold = d.blocks.iter().find(|b| text(b) == "Bad dog").expect("the Georgia-Bold line");
+        assert!(matches!(bold, Block::Paragraph { inlines, .. } if matches!(&inlines[0], Inline::Text { style, .. } if style.bold)));
+        // It makes a DOCX that reads back.
+        let docx = crate::doc::docx::write(&d).unwrap();
+        let back = crate::doc::docx::read(&docx).unwrap();
+        assert_eq!(back.blocks.len(), d.blocks.len());
+    }
+
+    #[test]
     fn redaction_removes_what_is_under_the_box() {
         let pdf = sample();
         // The heading, whole; "Name:" but not the underscores after it; half the picture.
@@ -1361,6 +1580,10 @@ mod tests {
     fn real_pdf() {
         let Ok(path) = std::env::var("JAYE_TEST_PDF") else { return };
         let pdf = std::fs::read(path).unwrap();
+        // As a Word file, where JAYE_TEST_DOCX says.
+        if let Ok(out) = std::env::var("JAYE_TEST_DOCX") {
+            return std::fs::write(out, crate::doc::docx::write(&to_document(&pdf).unwrap()).unwrap()).unwrap();
+        }
         let c = page_content(&pdf, 0).unwrap();
         for l in &c.lines {
             println!("line {} {:?} {:?} {} {}", l.index, l.text, l.rect.map(|v| v.round()), l.size, l.font);

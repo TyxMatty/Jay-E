@@ -8,7 +8,7 @@ const call = async (cmd, args) => (await core()).invoke(cmd, args);
 export const GROUPS = [
   { key: 'image', kinds: ['image'], name: 'Images', to: [['webp', 'WebP'], ['avif', 'AVIF'], ['jpg', 'JPEG'], ['png', 'PNG'], ['gif', 'GIF'], ['bmp', 'BMP'], ['tif', 'TIFF'], ['ico', 'ICO'], ['qoi', 'QOI']] },
   { key: 'document', kinds: ['document', 'markdown'], name: 'Documents', to: [['docx', 'DOCX'], ['md', 'Markdown'], ['html', 'HTML'], ['txt', 'TXT']] },
-  { key: 'pdf', kinds: ['pdf'], name: 'PDF', to: [['txt', 'TXT'], ['png', 'PNG (a picture per page)'], ['jpg', 'JPEG (a picture per page)']] },
+  { key: 'pdf', kinds: ['pdf'], name: 'PDF', to: [['txt', 'TXT'], ['docx', 'DOCX (Word)'], ['png', 'PNG (a picture per page)'], ['jpg', 'JPEG (a picture per page)']] },
   { key: 'latex', kinds: ['latex'], name: 'LaTeX', to: [['pdf', 'PDF']] },
   { key: 'video', kinds: ['video'], name: 'Video', to: [['mp4', 'MP4'], ['m4a', 'M4A (sound only)']] },
   { key: 'audio', kinds: ['audio'], name: 'Audio', to: [['m4a', 'M4A']] },
