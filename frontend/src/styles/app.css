@@ -2550,7 +2550,9 @@ fieldset > h3 {
 /* While drawing or placing notes and text, the page takes the clicks, not its text. */
 .pdf-scroll[data-tool='draw'] .pdf-page,
 .pdf-scroll[data-tool='note'] .pdf-page,
-.pdf-scroll[data-tool='text'] .pdf-page {
+.pdf-scroll[data-tool='text'] .pdf-page,
+.pdf-scroll[data-tool='redact'] .pdf-page,
+.pdf-scroll[data-tool='sign'] .pdf-page {
   cursor: crosshair;
 }
 
@@ -2560,6 +2562,12 @@ fieldset > h3 {
 .pdf-scroll[data-tool='editText'] .pdf-text,
 .pdf-scroll[data-tool='pictures'] .pdf-text,
 .pdf-scroll[data-tool='fill'] .pdf-text,
+.pdf-scroll[data-tool='redact'] .pdf-text,
+.pdf-scroll[data-tool='sign'] .pdf-text,
+.pdf-scroll[data-tool='redact'] .pdf-links,
+.pdf-scroll[data-tool='sign'] .pdf-links,
+.pdf-scroll[data-tool='redact'] .pdf-annots,
+.pdf-scroll[data-tool='sign'] .pdf-annots,
 .pdf-scroll[data-tool='editText'] .pdf-links,
 .pdf-scroll[data-tool='pictures'] .pdf-links,
 .pdf-scroll[data-tool='fill'] .pdf-links,
@@ -2574,6 +2582,25 @@ fieldset > h3 {
   cursor: text;
 }
 
+.pdf-redact-live {
+  position: absolute;
+  left: calc(var(--x) * var(--scale) * 1px);
+  top: calc(var(--y) * var(--scale) * 1px);
+  width: calc(var(--w) * var(--scale) * 1px);
+  height: calc(var(--h) * var(--scale) * 1px);
+  background: color-mix(in srgb, #000 70%, transparent);
+  outline: 1px dashed var(--accent);
+  pointer-events: none;
+}
+.pdf-sign-pad {
+  display: block;
+  width: min(480px, 100%);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  touch-action: none;
+  cursor: crosshair;
+}
 .pdf-ink-live {
   position: absolute;
   inset: 0;
@@ -3225,4 +3252,136 @@ fieldset > h3 {
 
 .video-razor {
   border-top: 1px solid var(--border);
+}
+
+/* ----- Stage 10: find and replace, spelling, compare (document editor) ----- */
+::highlight(jaye-find) {
+  background-color: color-mix(in srgb, #ffd400 55%, transparent);
+}
+::highlight(jaye-find-current) {
+  background-color: #ff9632;
+  color: #000;
+}
+::highlight(jaye-spell) {
+  text-decoration: underline wavy #e53935;
+  text-decoration-skip-ink: none;
+}
+.dx-find {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.dx-find[hidden] {
+  display: none;
+}
+.dx-find .input {
+  width: 11rem;
+  max-width: 40vw;
+}
+.dx-find-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  color: var(--text-muted, currentColor);
+}
+.dx-find-case {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.85em;
+}
+.dx-find-count {
+  min-width: 6em;
+}
+.dx-words {
+  white-space: nowrap;
+}
+.dx-spell-menu {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  min-width: 12rem;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+}
+.dx-spell-menu > .hint {
+  padding: 6px 10px;
+}
+.dx-spell-menu hr {
+  width: 100%;
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.dx-spell-item {
+  padding: 6px 10px;
+  text-align: start;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.dx-spell-item.is-suggestion {
+  font-weight: 600;
+}
+.dx-spell-item:hover,
+.dx-spell-item:focus-visible {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  outline: none;
+}
+.dx-cmp-dialog {
+  width: min(900px, 92vw);
+}
+.dx-cmp-body {
+  max-height: 60vh;
+  overflow: auto;
+  padding: 12px 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  line-height: 1.5;
+}
+.dx-cmp-p {
+  margin: 0 0 0.6em;
+  white-space: pre-wrap;
+}
+.dx-cmp-p.is-same {
+  opacity: 0.6;
+}
+.dx-cmp-body.only-changes .dx-cmp-p.is-same {
+  display: none;
+}
+.dx-cmp-added {
+  background: color-mix(in srgb, #2e7d32 25%, transparent);
+  text-decoration: none;
+}
+.dx-cmp-removed {
+  background: color-mix(in srgb, #c62828 22%, transparent);
+  text-decoration: line-through;
+}
+.dx-cmp-only {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+.cv-watch-log:empty {
+  display: none;
+}
+.cv-watch {
+  margin-top: 16px;
+}
+.dx-cmp-dialog .hint :is(ins, del) {
+  padding: 0 4px;
+  border-radius: 3px;
 }

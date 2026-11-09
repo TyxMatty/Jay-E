@@ -117,14 +117,14 @@ Two layers: the **engine** in Rust ([`crates/jay-docs`](../crates/jay-docs), no 
 | 7. Editing | DOCX and ODT edited with the usual toolbar (loose pictures, tables, first-page and even-page headers, repeated header rows, pages, Ctrl+Z); PDF: pages, annotations and forms |
 | 8. Converter | One screen that converts files of every kind into a folder, one format per kind, with a queue, progress, Stop and asking before replacing; 20 mixed files in 3 s, the damaged one fails alone |
 | 9. Release | v0.1.0 published: NSIS installer, "Open with" for every kind, Jay-E in Jay-H |
+| 10. More tools | Images (curves, filters, straighten, marking up, retouching, HEIC/RAW), video (timeline, razor, speed, sound, text, subtitles, GIF), PDF (editing the text, filling in, pictures, redaction, signature, compressing, OCR), documents (find and replace, words, spelling, compare), converter (HTML, LaTeX, pages as pictures, pictures into one PDF, a watched folder). Shipped in v0.2.0 |
 
 **Size:** the installer is 16.5 MiB, above the 15 MB goal because of the TeX engine (ICU's data is most of it).
 
-**Next stages:**
-- **10. More tools:** images (curves and levels, filters, straighten, marking up), video (timeline, razor, speed, sound, fades, text over the video), PDF (compress, sign, redact, OCR), documents and the converter; ideas from PhotoCraft and OpenShot (`docs/REFERENCIAS.en.md`, section 6).
+**Next stages:** none planned; the to-do list below and the ideas in `docs/REFERENCIAS.en.md` (section 6) that were left out.
 
 **To do** (the full list is in [`ROADMAP.en.md`](../ROADMAP.en.md)):
-- publish the first release (v0.1.0), so the updater and Jay-H have something to find;
+- try updating from v0.1.0 to v0.2.0 on a real install;
 - LaTeX: compiling offline after the first time, "Save PDF…", Stop and the time limit in the app;
 - see if ICU's data can be cut to what XeTeX uses, to bring the installer back to 15 MB;
 - CI that runs `npm test` and both `cargo test` on every push.

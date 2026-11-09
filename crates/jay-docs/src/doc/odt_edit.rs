@@ -429,6 +429,13 @@ impl Session {
             margins: vec![],
             title_pg: master.is_some_and(|m| m.child("header-first").is_some() || m.child("footer-first").is_some()),
             even_odd: master.is_some_and(|m| m.child("header-left").is_some() || m.child("footer-left").is_some()),
+            lang: sroot.as_ref().and_then(|r| r.child("styles")).and_then(|st| st.nodes().find(|n| n.name == "default-style" && n.attr("family") == Some("paragraph"))).and_then(|d| d.child("text-properties")).and_then(|t| {
+                let language = t.attr("language").filter(|l| !l.is_empty() && *l != "none")?;
+                Some(match t.attr("country").filter(|c| !c.is_empty() && *c != "none") {
+                    Some(country) => format!("{language}-{country}"),
+                    None => language.to_owned(),
+                })
+            }),
         };
         let out = Session { master: master.map(|m| m.span.clone()), master_children: master.map(|m| m.nodes().map(|c| (c.name.clone(), c.span.clone())).collect()).unwrap_or_default(), file: bytes.to_vec(), xml: String::new(), parts, autos, units: vec![], atoms: vec![], runs: vec![], links: vec![], styles: Styles { defs: HashMap::new(), default_p: PProps::default(), default_r: RProps::default(), named: vec![] }, names, images: vec![], view };
         let mut ctx = Ctx { xml: &all, part: 0, styles: &styles, zip, image_index: HashMap::new(), img_url, list_styles: &list_styles, numbering: HashMap::new(), last_list: HashMap::new(), out };

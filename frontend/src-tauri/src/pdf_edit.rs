@@ -223,6 +223,48 @@ pub async fn pdf_replace_image(doc: u32, page: usize, index: usize, app: AppHand
     change(app, doc, move |bytes| pdf_content::replace_image(bytes, page, index, &rgba)).await.map(Some)
 }
 
+#[derive(Serialize)]
+pub struct Compressed {
+    edited: Edited,
+    before: usize,
+    after: usize,
+}
+
+/// A smaller version: pictures at 150 dpi, everything compressed. The sizes are the file's before
+/// and after.
+#[tauri::command]
+pub async fn pdf_compress(doc: u32, app: AppHandle) -> Result<Compressed, EditError> {
+    let before = current(&app, doc)?.len();
+    // No new version when it wouldn't be smaller (the page says so).
+    let edited = change(app.clone(), doc, |bytes| pdf_content::compress(bytes, 150.0).and_then(|out| if out.len() < bytes.len() { Ok(out) } else { Err(err("already small")) })).await?;
+    let after = current(&app, edited.doc)?.len();
+    Ok(Compressed { edited, before, after })
+}
+
+#[derive(Serialize)]
+pub struct Searchable {
+    edited: Edited,
+    /// Pages that got text.
+    pages: usize,
+}
+
+/// Pages without text read by Windows' OCR and given invisible text. `progress` gets
+/// `[done, pages]` after each page.
+#[tauri::command]
+pub async fn pdf_make_searchable(doc: u32, progress: tauri::ipc::Channel<[usize; 2]>, app: AppHandle) -> Result<Searchable, EditError> {
+    let found = Arc::new(Mutex::new(0));
+    let count = found.clone();
+    let edited = change(app, doc, move |bytes| {
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let (out, pages) = jay_docs::pdf_ocr::make_searchable(bytes, &mut |done, all| drop(progress.send([done, all])), &stop)?;
+        *count.lock().unwrap() = pages;
+        if pages == 0 { Err(err("already searchable")) } else { Ok(out) }
+    })
+    .await?;
+    let pages = *found.lock().unwrap();
+    Ok(Searchable { edited, pages })
+}
+
 /// Forgets a closed document's edits (pdf_close).
 pub fn forget(app: &AppHandle, doc: u32) {
     app.state::<PdfEdits>().open.lock().unwrap().remove(&doc);

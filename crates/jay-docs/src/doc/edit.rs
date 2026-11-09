@@ -554,6 +554,8 @@ pub struct View {
     /// A different header and footer on the first page; on even pages.
     pub title_pg: bool,
     pub even_odd: bool,
+    /// The text's language as the file says ("pt-BR"), for spelling.
+    pub lang: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -707,6 +709,8 @@ impl Session {
             margins: vec![],
             title_pg: body.child("sectPr").and_then(|s| s.child("titlePg")).is_some_and(on),
             even_odd: zip_entry(&mut zip, "word/settings.xml")?.and_then(|x| xml::parse(&x).ok()).and_then(|s| s.child("evenAndOddHeaders").map(on)).unwrap_or(false),
+            // The default run language, else the first one the text names.
+            lang: styles_root.as_ref().and_then(|s| s.find("docDefaults")).and_then(|d| d.find("lang")).and_then(|l| l.attr("val")).or_else(|| body.find("lang").and_then(|l| l.attr("val"))).filter(|l| !l.is_empty()).map(str::to_owned),
         };
         let has_r_ns = tag.contains(&format!("xmlns:r=\"{R_NS}\""));
         let body_sect = body.child("sectPr").map(|s| s.span.clone());

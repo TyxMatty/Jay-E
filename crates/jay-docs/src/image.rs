@@ -742,7 +742,7 @@ fn parse_exif(data: &[u8]) -> PhotoInfo {
 }
 
 /// Standard base64 (with or without padding); None if it isn't.
-fn base64_decode(text: &str) -> Option<Vec<u8>> {
+pub(crate) fn base64_decode(text: &str) -> Option<Vec<u8>> {
     let value = |c: u8| match c {
         b'A'..=b'Z' => Some(c - b'A'),
         b'a'..=b'z' => Some(c - b'a' + 26),

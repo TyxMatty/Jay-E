@@ -46,4 +46,4 @@ serde_json = "1"
 # Video conversion through Media Foundation (comes with Windows; decision D3). The same windows
 # crate version Tauri uses.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_Foundation", "Win32_Graphics_Imaging"] }
+windows = { version = "0.62", features = ["Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_Foundation", "Win32_Graphics_Imaging", "Media_Ocr", "Graphics_Imaging", "Security_Cryptography", "Foundation_Collections", "Storage_Streams"] }

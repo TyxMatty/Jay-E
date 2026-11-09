@@ -204,6 +204,8 @@ struct Glyph {
     /// Baseline start and end on the shown page.
     a: [f32; 2],
     b: [f32; 2],
+    /// Its advance as a `TJ` number (what moves the pen as far without showing it).
+    adv: f32,
 }
 
 struct Piece {
@@ -221,6 +223,8 @@ struct Image {
     op: usize,
     ctm: M,
     rect: [f32; 4],
+    /// In the content stream itself (`BI … EI`), not an XObject.
+    inline: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -249,6 +253,10 @@ struct Scan {
     hlines: Vec<(f32, f32, f32)>,
     vlines: Vec<(f32, f32, f32)>,
     boxes: Vec<[f32; 4]>,
+    /// Where Form XObjects (groups with their own content) are drawn.
+    forms: Vec<[f32; 4]>,
+    /// Some text couldn't be placed (an unknown font, too many pieces).
+    unplaced: bool,
 }
 
 fn shown_bbox(g: &Geo, points: &[[f32; 2]]) -> [f32; 4] {
@@ -277,7 +285,7 @@ fn scan(doc: &Document, page: ObjectId) -> Result<Scan, EditError> {
     let mut path: Vec<Seg> = vec![];
     let mut current = [0.0f32; 2];
     let mut start = [0.0f32; 2];
-    let mut scan = Scan { ops: vec![], pieces: vec![], images: vec![], hlines: vec![], vlines: vec![], boxes: vec![] };
+    let mut scan = Scan { ops: vec![], pieces: vec![], images: vec![], hlines: vec![], vlines: vec![], boxes: vec![], forms: vec![], unplaced: false };
 
     for (i, op) in content.operations.iter().enumerate() {
         let v = operands(op);
@@ -381,19 +389,32 @@ fn scan(doc: &Document, page: ObjectId) -> Result<Scan, EditError> {
                     }
                 }
             }
-            "Do" => {
-                let image = op.operands.first().and_then(name).and_then(|k| xobjects.get(k.as_bytes())).is_some_and(|id| doc.get_object(*id).ok().and_then(|o| o.as_stream().ok()).is_some_and(|s| s.dict.get(b"Subtype").ok().and_then(name).as_deref() == Some("Image")));
-                if image && scan.images.len() < MAX_PICTURES {
+            "Do" | "BI" => {
+                let stream = if op.operator == "BI" { None } else { op.operands.first().and_then(name).and_then(|k| xobjects.get(k.as_bytes())).and_then(|id| doc.get_object(*id).ok()).and_then(|o| o.as_stream().ok()) };
+                let subtype = stream.and_then(|s| s.dict.get(b"Subtype").ok()).and_then(name);
+                if (op.operator == "BI" || subtype.as_deref() == Some("Image")) && scan.images.len() < MAX_PICTURES {
                     let corners = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]].map(|p| apply_m(st.ctm, p));
-                    scan.images.push(Image { op: i, ctm: st.ctm, rect: shown_bbox(&g, &corners) });
+                    scan.images.push(Image { op: i, ctm: st.ctm, rect: shown_bbox(&g, &corners), inline: op.operator == "BI" });
+                } else if subtype.as_deref() == Some("Form") {
+                    let d = &stream.expect("a form is a stream").dict;
+                    let bbox: Vec<f32> = d.get(b"BBox").ok().map(|o| deref(doc, o)).and_then(|o| o.as_array().ok()).map(|a| a.iter().filter_map(|v| num(deref(doc, v))).collect()).unwrap_or_default();
+                    let matrix = d.get(b"Matrix").ok().map(|o| deref(doc, o)).and_then(|o| o.as_array().ok()).map(|a| a.iter().filter_map(|v| num(deref(doc, v))).collect::<Vec<f32>>()).and_then(|v| matrix_of(&v)).unwrap_or(ID);
+                    // No box: the whole page, to be safe.
+                    let [x0, y0, x1, y1] = if bbox.len() == 4 { [bbox[0], bbox[1], bbox[2], bbox[3]] } else { [-1e6, -1e6, 1e6, 1e6] };
+                    let m = mul(matrix, st.ctm);
+                    let corners = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map(|p| apply_m(m, p));
+                    scan.forms.push(shown_bbox(&g, &corners));
                 }
             }
             _ => {}
         }
-        if show.is_empty() || scan.pieces.len() >= MAX_LINES * 4 {
+        if show.is_empty() {
             continue;
         }
-        let Some(font) = fonts.get(st.font) else { continue };
+        let Some(font) = fonts.get(st.font).filter(|_| scan.pieces.len() < MAX_LINES * 4) else {
+            scan.unplaced = true;
+            continue;
+        };
         let mut glyphs = vec![];
         for obj in show {
             let parts: Vec<&Object> = match obj {
@@ -415,7 +436,8 @@ fn scan(doc: &Document, page: ObjectId) -> Result<Scan, EditError> {
                             tm = mul([1.0, 0.0, 0.0, 1.0, advance, 0.0], tm);
                             let trm2 = mul([st.size * st.th, 0.0, 0.0, st.size, 0.0, st.rise], mul(tm, st.ctm));
                             let b = g.from_user(apply_m(trm2, [0.0, 0.0]));
-                            glyphs.push(Glyph { text, code: code.to_vec(), a, b });
+                            let adv = if st.size.abs() > 1e-6 { -(w0 * st.size + st.tc + space) / st.size * 1000.0 } else { 0.0 };
+                            glyphs.push(Glyph { text, code: code.to_vec(), a, b, adv });
                         }
                     }
                     o => {
@@ -540,7 +562,7 @@ fn blanks(s: &Scan) -> Vec<Blank> {
     // Runs of three or more underscores.
     for p in s.pieces.iter().filter(|p| p.horizontal) {
         let mut run: Vec<&Glyph> = vec![];
-        for g in p.glyphs.iter().chain(std::iter::once(&Glyph { text: String::new(), code: vec![], a: [0.0; 2], b: [0.0; 2] })) {
+        for g in p.glyphs.iter().chain(std::iter::once(&Glyph { text: String::new(), code: vec![], a: [0.0; 2], b: [0.0; 2], adv: 0.0 })) {
             if g.text == "_" {
                 run.push(g);
                 continue;
@@ -585,6 +607,9 @@ pub enum ContentOp {
     /// Picture `index` moved and sized to `[x, y, w, h]` on the shown page.
     MoveImage { page: usize, index: usize, rect: [f32; 4] },
     DeleteImage { page: usize, index: usize },
+    /// Everything under `[x, y, w, h]` on the shown page removed from the file (the text, the
+    /// pictures' pixels, annotations), and a black box drawn there.
+    Redact { page: usize, rect: [f32; 4] },
 }
 
 /// A page's resources dictionary, made the page's own and writable, and its `kind` subdictionary.
@@ -654,7 +679,7 @@ fn without_text(o: &Operation) -> Vec<Operation> {
 pub fn apply(bytes: &[u8], change: &ContentOp) -> Result<Vec<u8>, EditError> {
     let mut doc = load(bytes)?;
     let pages = flatten(&mut doc)?;
-    let (ContentOp::ReplaceText { page, .. } | ContentOp::MoveImage { page, .. } | ContentOp::DeleteImage { page, .. }) = change;
+    let (ContentOp::ReplaceText { page, .. } | ContentOp::MoveImage { page, .. } | ContentOp::DeleteImage { page, .. } | ContentOp::Redact { page, .. }) = change;
     let id = page_id(&pages, *page)?;
     let s = scan(&doc, id)?;
     let mut ops = s.ops.clone();
@@ -765,6 +790,59 @@ pub fn apply(bytes: &[u8], change: &ContentOp) -> Result<Vec<u8>, EditError> {
             let im = s.images.get(*index).ok_or_else(|| invalid("no such picture"))?;
             swap.insert(im.op, vec![]);
         }
+        ContentOp::Redact { rect: r, .. } => {
+            let r = *r;
+            if r.iter().any(|v| !v.is_finite()) || r[2] < 1.0 || r[3] < 1.0 {
+                return Err(invalid("not a size"));
+            }
+            // Refused rather than leaving text in the file that looks removed.
+            if s.unplaced {
+                return Err(invalid("some text on this page can't be placed, so it can't be redacted safely"));
+            }
+            if s.forms.iter().any(|&f| overlaps(f, r)) {
+                return Err(invalid("this part of the page is drawn as a group Jay-E can't redact yet"));
+            }
+            for p in &s.pieces {
+                let gone: Vec<bool> = p.glyphs.iter().map(|g| covered(glyph_box(p, g), r)).collect();
+                if gone.contains(&true) {
+                    swap.insert(p.op, redacted_show(&s.ops[p.op], p, &gone));
+                }
+            }
+            let g = geo(&doc, id);
+            let xobjects = xobjects(&doc, id);
+            for im in s.images.iter().filter(|im| overlaps(im.rect, r)) {
+                // Its pixels under the box go black; a picture Jay-E can't read goes whole.
+                let id_of = (!im.inline).then(|| s.ops[im.op].operands.first().and_then(name).and_then(|k| xobjects.get(k.as_bytes()).copied())).flatten();
+                let read = id_of.and_then(|o| doc.get_object(o).ok()?.as_stream().ok().and_then(|st| pixels(&doc, st).map(|p| (p, st.dict.clone()))));
+                let new = match read {
+                    Some((mut px, dict)) => {
+                        let (w, h) = (px.width(), px.height());
+                        for y in 0..h {
+                            for x in 0..w {
+                                let user = apply_m(im.ctm, [(x as f32 + 0.5) / w as f32, 1.0 - (y as f32 + 0.5) / h as f32]);
+                                let [sx, sy] = g.from_user(user);
+                                if sx >= r[0] && sx <= r[0] + r[2] && sy >= r[1] && sy <= r[1] + r[3] {
+                                    match &mut px {
+                                        image::DynamicImage::ImageLuma8(b) => b.put_pixel(x, y, image::Luma([0])),
+                                        image::DynamicImage::ImageRgb8(b) => b.put_pixel(x, y, image::Rgb([0, 0, 0])),
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                        let stream = image_stream(&dict, &px, None);
+                        let image_id = doc.add_object(stream);
+                        let key = add_resource(&mut doc, id, b"XObject", "JEim", Object::Reference(image_id))?;
+                        vec![op("Do", vec![Object::Name(key)])]
+                    }
+                    None => vec![],
+                };
+                swap.insert(im.op, new);
+            }
+            remove_annotations(&mut doc, id, g.user_rect(r));
+            let [x0, y0, x1, y1] = g.user_rect(r);
+            after = vec![op("q", vec![]), op("rg", vec![real(0.0), real(0.0), real(0.0)]), op("re", vec![real(x0), real(y0), real(x1 - x0), real(y1 - y0)]), op("f", vec![]), op("Q", vec![])];
+        }
     }
     ops = ops.into_iter().enumerate().flat_map(|(i, o)| swap.remove(&i).unwrap_or_else(|| vec![o])).collect();
     if !after.is_empty() {
@@ -774,6 +852,270 @@ pub fn apply(bytes: &[u8], change: &ContentOp) -> Result<Vec<u8>, EditError> {
         ops.extend(after);
     }
     put_content(&mut doc, id, ops)?;
+    save(&mut doc)
+}
+
+fn overlaps(a: [f32; 4], b: [f32; 4]) -> bool {
+    a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3]
+}
+
+/// A glyph's box on the shown page (wider than it, for text that isn't horizontal).
+fn glyph_box(p: &Piece, g: &Glyph) -> [f32; 4] {
+    let h = p.height.max(1.0);
+    let (x0, x1) = (g.a[0].min(g.b[0]), g.a[0].max(g.b[0]));
+    if p.horizontal { [x0, g.a[1] - 0.85 * h, (x1 - x0).max(0.1), 1.1 * h] } else { [x0 - h, g.a[1].min(g.b[1]) - h, x1 - x0 + 2.0 * h, (g.a[1] - g.b[1]).abs() + 2.0 * h] }
+}
+
+/// The glyph is under the box: a third of its width at least, and some of its height.
+fn covered(gb: [f32; 4], r: [f32; 4]) -> bool {
+    let wide = (gb[0] + gb[2]).min(r[0] + r[2]) - gb[0].max(r[0]);
+    overlaps(gb, r) && wide >= gb[2] * 0.3
+}
+
+/// The showing operator with the `gone` glyphs taken out, the pen moved past each as before.
+fn redacted_show(o: &Operation, p: &Piece, gone: &[bool]) -> Vec<Operation> {
+    let mut out = without_text(o);
+    let shown: Vec<&Object> = match o.operator.as_str() {
+        "Tj" | "TJ" => o.operands.iter().collect(),
+        _ => o.operands.last().into_iter().collect(),
+    };
+    let mut parts: Vec<Object> = vec![];
+    let mut k = 0;
+    for obj in shown {
+        let list: Vec<&Object> = match obj {
+            Object::Array(a) => a.iter().collect(),
+            o => vec![o],
+        };
+        for part in list {
+            match part {
+                Object::String(bytes, format) => {
+                    let mut kept = vec![];
+                    let mut at = 0;
+                    while at < bytes.len() {
+                        let Some(g) = p.glyphs.get(k) else { break };
+                        let end = (at + g.code.len().max(1)).min(bytes.len());
+                        if gone[k] {
+                            if !kept.is_empty() {
+                                parts.push(Object::String(std::mem::take(&mut kept), *format));
+                            }
+                            parts.push(real(g.adv));
+                        } else {
+                            kept.extend_from_slice(&bytes[at..end]);
+                        }
+                        at = end;
+                        k += 1;
+                    }
+                    if !kept.is_empty() {
+                        parts.push(Object::String(kept, *format));
+                    }
+                }
+                other => parts.push(other.clone()),
+            }
+        }
+    }
+    out.push(op("TJ", vec![Object::Array(parts)]));
+    out
+}
+
+/// Takes off page `page` the annotations whose box meets `user` (`[x0, y0, x1, y1]`).
+fn remove_annotations(doc: &mut Document, page: ObjectId, user: [f32; 4]) {
+    let Ok(annots) = doc.get_dictionary(page).and_then(|d| d.get(b"Annots")).cloned() else { return };
+    let list = match &annots {
+        Object::Reference(id) => doc.get_object(*id).ok().and_then(|o| o.as_array().ok()).cloned().unwrap_or_default(),
+        Object::Array(a) => a.clone(),
+        _ => return,
+    };
+    let kept: Vec<Object> = list
+        .into_iter()
+        .filter(|a| {
+            let rect: Vec<f32> = deref(doc, a).as_dict().ok().and_then(|d| d.get(b"Rect").ok()).map(|o| deref(doc, o)).and_then(|o| o.as_array().ok()).map(|r| r.iter().filter_map(|v| num(deref(doc, v))).collect()).unwrap_or_default();
+            rect.len() != 4 || !overlaps([rect[0].min(rect[2]), rect[1].min(rect[3]), (rect[2] - rect[0]).abs(), (rect[3] - rect[1]).abs()], [user[0], user[1], user[2] - user[0], user[3] - user[1]])
+        })
+        .collect();
+    if let Ok(d) = doc.get_dictionary_mut(page) {
+        d.set("Annots", Object::Array(kept));
+    }
+}
+
+/// An image XObject's pixels, when Jay-E can read them: 8-bit gray or RGB, unfiltered, Flate or
+/// JPEG, no decode array.
+fn pixels(doc: &Document, s: &Stream) -> Option<image::DynamicImage> {
+    let d = &s.dict;
+    if d.get(b"ImageMask").ok().and_then(|o| o.as_bool().ok()) == Some(true) || d.has(b"Decode") {
+        return None;
+    }
+    let get = |k: &[u8]| d.get(k).ok().and_then(|o| num(deref(doc, o)));
+    let (w, h) = (get(b"Width")? as u32, get(b"Height")? as u32);
+    if w == 0 || h == 0 || w as u64 * h as u64 > 100_000_000 {
+        return None;
+    }
+    let comps = match deref(doc, d.get(b"ColorSpace").ok()?) {
+        Object::Name(n) if n == b"DeviceRGB" => 3,
+        Object::Name(n) if n == b"DeviceGray" => 1,
+        Object::Array(a) if a.first().and_then(name).as_deref() == Some("ICCBased") => a.get(1).and_then(|o| deref(doc, o).as_stream().ok()).and_then(|st| st.dict.get(b"N").ok()).and_then(num)? as u32,
+        _ => return None,
+    };
+    let filters: Vec<String> = match d.get(b"Filter").ok().map(|o| deref(doc, o)) {
+        Some(Object::Name(n)) => vec![String::from_utf8_lossy(n).into_owned()],
+        Some(Object::Array(a)) => a.iter().filter_map(name).collect(),
+        _ => vec![],
+    };
+    let image = match filters.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+        [] | ["FlateDecode"] => {
+            if get(b"BitsPerComponent") != Some(8.0) {
+                return None;
+            }
+            let data = if filters.is_empty() { s.content.clone() } else { s.decompressed_content().ok()? };
+            let n = (w * h * comps) as usize;
+            match comps {
+                3 => image::DynamicImage::ImageRgb8(image::RgbImage::from_raw(w, h, data.get(..n)?.to_vec())?),
+                1 => image::DynamicImage::ImageLuma8(image::GrayImage::from_raw(w, h, data.get(..n)?.to_vec())?),
+                _ => return None,
+            }
+        }
+        ["DCTDecode"] => {
+            let i = image::load_from_memory_with_format(&s.content, image::ImageFormat::Jpeg).ok()?;
+            if i.width() != w || i.height() != h || jpeg_components(&s.content) != Some(comps as u8) {
+                return None;
+            }
+            if comps == 1 { image::DynamicImage::ImageLuma8(i.to_luma8()) } else { image::DynamicImage::ImageRgb8(i.to_rgb8()) }
+        }
+        _ => return None,
+    };
+    Some(image)
+}
+
+/// The number of color components a JPEG says it has (its frame header), if it's readable.
+pub(crate) fn jpeg_components(bytes: &[u8]) -> Option<u8> {
+    let mut i = 2;
+    while i + 9 < bytes.len() {
+        if bytes[i] != 0xff {
+            return None;
+        }
+        let marker = bytes[i + 1];
+        let len = u16::from_be_bytes([bytes[i + 2], bytes[i + 3]]) as usize;
+        if (0xc0..=0xcf).contains(&marker) && !matches!(marker, 0xc4 | 0xc8 | 0xcc) {
+            return Some(bytes[i + 9]);
+        }
+        i += 2 + len;
+    }
+    None
+}
+
+/// An image XObject with `old`'s keys (its mask, color space…) and `image`'s pixels: JPEG at
+/// `jpeg` quality, or compressed raw samples.
+fn image_stream(old: &Dictionary, image: &image::DynamicImage, jpeg: Option<u8>) -> Stream {
+    let mut d = old.clone();
+    for k in [&b"DecodeParms"[..], b"Filter", b"Length"] {
+        d.remove(k);
+    }
+    let gray = matches!(image, image::DynamicImage::ImageLuma8(_));
+    d.set("Width", image.width() as i64);
+    d.set("Height", image.height() as i64);
+    d.set("BitsPerComponent", 8);
+    if !matches!(d.get(b"ColorSpace"), Ok(Object::Array(_)) | Ok(Object::Reference(_))) {
+        d.set("ColorSpace", if gray { "DeviceGray" } else { "DeviceRGB" });
+    }
+    let raw = if gray { image.to_luma8().into_raw() } else { image.to_rgb8().into_raw() };
+    if let Some(q) = jpeg {
+        let mut out = vec![];
+        let encoded = if gray { image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, q).encode(&raw, image.width(), image.height(), image::ExtendedColorType::L8) } else { image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, q).encode(&raw, image.width(), image.height(), image::ExtendedColorType::Rgb8) };
+        if encoded.is_ok() {
+            d.set("Filter", "DCTDecode");
+            let mut s = Stream::new(d, out);
+            s.allows_compression = false;
+            return s;
+        }
+    }
+    let mut s = Stream::new(d, raw);
+    let _ = s.compress();
+    s
+}
+
+/// A smaller copy: pictures shrunk to `dpi` at the largest size a page shows them (2000 px a side
+/// for ones only drawn inside groups), saved as JPEG when that's at least a tenth smaller, unused
+/// objects dropped and every stream compressed. Pictures Jay-E can't read stay as they are.
+pub fn compress(bytes: &[u8], dpi: f32) -> Result<Vec<u8>, EditError> {
+    let mut doc = load(bytes)?;
+    let pages = flatten(&mut doc)?;
+    let mut shown: HashMap<ObjectId, f32> = HashMap::new();
+    for &page in &pages {
+        let Ok(s) = scan(&doc, page) else { continue };
+        let x = xobjects(&doc, page);
+        for im in s.images.iter().filter(|im| !im.inline) {
+            if let Some(obj) = s.ops[im.op].operands.first().and_then(name).and_then(|k| x.get(k.as_bytes())) {
+                let side = shown.entry(*obj).or_insert(0.0);
+                *side = side.max(im.rect[2].max(im.rect[3]));
+            }
+        }
+    }
+    // Masks stay as they are: they're the shape of a picture, often sharp.
+    let masks: std::collections::HashSet<ObjectId> = doc.objects.values().filter_map(|o| o.as_stream().ok()).flat_map(|s| [s.dict.get(b"SMask").ok(), s.dict.get(b"Mask").ok()]).flatten().filter_map(|o| o.as_reference().ok()).collect();
+    let images: Vec<ObjectId> = doc.objects.iter().filter(|(id, o)| !masks.contains(id) && o.as_stream().is_ok_and(|s| s.dict.get(b"Subtype").ok().and_then(name).as_deref() == Some("Image"))).map(|(id, _)| *id).collect();
+    for id in images {
+        let Some(stream) = doc.get_object(id).ok().and_then(|o| o.as_stream().ok()) else { continue };
+        let Some(picture) = pixels(&doc, stream) else { continue };
+        let need = shown.get(&id).map_or(2000.0, |pt| pt / 72.0 * dpi).max(16.0);
+        let (w, h) = (picture.width() as f32, picture.height() as f32);
+        let long = w.max(h);
+        let picture = if long > need * 1.2 { picture.resize_exact(((w * need / long).round() as u32).max(1), ((h * need / long).round() as u32).max(1), image::imageops::FilterType::CatmullRom) } else { picture };
+        let smaller = image_stream(&stream.dict, &picture, Some(80));
+        if smaller.content.len() * 10 < stream.content.len() * 9 {
+            doc.objects.insert(id, Object::Stream(smaller));
+        }
+    }
+    doc.prune_objects();
+    doc.compress();
+    save(&mut doc)
+}
+
+/// Pictures as a PDF, one per page: an A4 page turned the picture's way, the picture fitted
+/// inside it (never bigger than at 96 dpi), centered. JPEG files go in as they are.
+pub fn images_to_pdf(pictures: &[(image::DynamicImage, Option<Vec<u8>>)]) -> Result<Vec<u8>, EditError> {
+    if pictures.is_empty() {
+        return Err(EditError::Empty);
+    }
+    let mut doc = Document::with_version("1.7");
+    let pages_id = doc.new_object_id();
+    let mut kids = vec![];
+    for (picture, jpeg) in pictures {
+        let (w, h) = (picture.width() as f32, picture.height() as f32);
+        let (pw, ph) = if w > h { (841.89, 595.28) } else { (595.28, 841.89) };
+        let scale = (pw / w).min(ph / h).min(0.75);
+        let (dw, dh) = (w * scale, h * scale);
+        let rgb = image::DynamicImage::ImageRgb8(picture.to_rgb8());
+        let mut dict = dictionary! { "Type" => "XObject", "Subtype" => "Image" };
+        let alpha: Option<Vec<u8>> = picture.color().has_alpha().then(|| picture.to_rgba8().pixels().map(|p| p[3]).collect()).filter(|a: &Vec<u8>| a.iter().any(|&v| v < 255));
+        if let Some(alpha) = alpha {
+            let mut mask = Stream::new(dictionary! { "Type" => "XObject", "Subtype" => "Image", "Width" => picture.width() as i64, "Height" => picture.height() as i64, "ColorSpace" => "DeviceGray", "BitsPerComponent" => 8 }, alpha);
+            let _ = mask.compress();
+            dict.set("SMask", Object::Reference(doc.add_object(mask)));
+        }
+        let stream = match jpeg.as_ref().filter(|j| matches!(jpeg_components(j), Some(1 | 3))) {
+            Some(j) => {
+                let gray = jpeg_components(j) == Some(1);
+                dict.set("Width", picture.width() as i64);
+                dict.set("Height", picture.height() as i64);
+                dict.set("BitsPerComponent", 8);
+                dict.set("ColorSpace", if gray { "DeviceGray" } else { "DeviceRGB" });
+                dict.set("Filter", "DCTDecode");
+                let mut s = Stream::new(dict, j.clone());
+                s.allows_compression = false;
+                s
+            }
+            None => image_stream(&dict, &rgb, None),
+        };
+        let image_id = doc.add_object(stream);
+        let content = format!("q {dw} 0 0 {dh} {} {} cm /Im1 Do Q", (pw - dw) / 2.0, (ph - dh) / 2.0);
+        let content_id = doc.add_object(Stream::new(Dictionary::new(), content.into_bytes()));
+        let page = doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id, "MediaBox" => vec![0.into(), 0.into(), real(pw), real(ph)], "Contents" => content_id, "Resources" => dictionary! { "XObject" => dictionary! { "Im1" => image_id } } });
+        kids.push(Object::Reference(page));
+    }
+    let count = kids.len() as i64;
+    doc.objects.insert(pages_id, Object::Dictionary(dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => count }));
+    let catalog = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+    doc.trailer.set("Root", catalog);
+    doc.compress();
     save(&mut doc)
 }
 
@@ -944,6 +1286,72 @@ mod tests {
         assert!(doc.objects.values().any(|o| o.as_stream().is_ok_and(|s| s.dict.has(b"SMask"))));
         // The page still draws.
         assert!(crate::pdf::PdfDocument::from_bytes(std::sync::Arc::new(swapped), "").is_ok());
+    }
+
+    #[test]
+    fn redaction_removes_what_is_under_the_box() {
+        let pdf = sample();
+        // The heading, whole; "Name:" but not the underscores after it; half the picture.
+        let mut out = apply(&pdf, &ContentOp::Redact { page: 0, rect: [60.0, 30.0, 250.0, 30.0] }).unwrap();
+        out = apply(&out, &ContentOp::Redact { page: 0, rect: [70.0, 80.0, 38.0, 16.0] }).unwrap();
+        out = apply(&out, &ContentOp::Redact { page: 0, rect: [295.0, 140.0, 55.0, 60.0] }).unwrap();
+        let c = page_content(&out, 0).unwrap();
+        let texts: Vec<&str> = c.lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(texts, ["__________", "Signature", "I agree", "Bad dog"]);
+        let all = everything(&out);
+        assert!(!all.contains("Application") && !all.contains("Name"), "the text is still in the file");
+        // The underscores didn't move.
+        let before = page_content(&pdf, 0).unwrap().blanks;
+        // (The heading's rule is a blank now: nothing is written on it any more.)
+        let xs: Vec<i32> = c.blanks.iter().map(|b| b.rect[0].round() as i32).collect();
+        assert!(before.iter().all(|b| xs.contains(&(b.rect[0].round() as i32))), "{xs:?}");
+        // The picture: the left pixel black, the right one still blue.
+        let doc = Document::load_mem(&out).unwrap();
+        let page = doc.get_pages()[&1];
+        let x = xobjects(&doc, page);
+        let im = x.iter().find(|(k, _)| k.starts_with(b"JEim")).map(|(_, id)| doc.get_object(*id).unwrap().as_stream().unwrap()).expect("a new picture");
+        let px = pixels(&doc, im).unwrap().to_rgb8();
+        assert_eq!((px.get_pixel(0, 0).0, px.get_pixel(1, 0).0), ([0, 0, 0], [0, 0, 255]));
+        assert!(crate::pdf::PdfDocument::from_bytes(std::sync::Arc::new(out), "").is_ok());
+    }
+
+    #[test]
+    fn compressing_shrinks_big_pictures() {
+        // A 2000×1000 photo drawn 100×50 pt: 150 dpi needs 208 px.
+        let mut doc = Document::load_mem(&sample()).unwrap();
+        let photo = image::RgbImage::from_fn(2000, 1000, |x, y| image::Rgb([(x % 251) as u8, (y % 241) as u8, ((x * y) % 239) as u8]));
+        let mut big = Stream::new(dictionary! { "Type" => "XObject", "Subtype" => "Image", "Width" => 2000, "Height" => 1000, "ColorSpace" => "DeviceRGB", "BitsPerComponent" => 8 }, photo.into_raw());
+        big.compress().unwrap();
+        let page = doc.get_pages()[&1];
+        let im = doc.get_dictionary(page).unwrap().get(b"Resources").unwrap().as_dict().unwrap().get(b"XObject").unwrap().as_dict().unwrap().get(b"Im1").unwrap().as_reference().unwrap();
+        doc.objects.insert(im, Object::Stream(big));
+        let pdf = save(&mut doc).unwrap();
+        let small = compress(&pdf, 150.0).unwrap();
+        assert!(small.len() * 5 < pdf.len(), "{} → {}", pdf.len(), small.len());
+        let doc = Document::load_mem(&small).unwrap();
+        let s = doc.get_object(im).unwrap().as_stream().unwrap();
+        assert_eq!((s.dict.get(b"Width").unwrap().as_i64().unwrap(), s.dict.get(b"Filter").ok().and_then(name).unwrap()), (208, "DCTDecode".to_owned()));
+        assert_eq!(page_content(&small, 0).unwrap().pictures[0].rect, page_content(&pdf, 0).unwrap().pictures[0].rect);
+        assert_eq!(texts(&small), texts(&pdf));
+    }
+
+    #[test]
+    fn pictures_become_pages() {
+        let clear = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(40, 20, image::Rgba([0, 0, 255, 100])));
+        let mut jpeg = vec![];
+        image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(30, 60, image::Rgb([200, 10, 10]))).write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg).unwrap();
+        let photo = image::load_from_memory(&jpeg).unwrap();
+        let pdf = images_to_pdf(&[(clear, None), (photo, Some(jpeg.clone()))]).unwrap();
+        let doc = Document::load_mem(&pdf).unwrap();
+        assert_eq!(doc.get_pages().len(), 2);
+        assert!(doc.objects.values().any(|o| o.as_stream().is_ok_and(|s| s.content == jpeg)), "the JPEG went in as it was");
+        assert!(doc.objects.values().any(|o| o.as_stream().is_ok_and(|s| s.dict.has(b"SMask"))));
+        // A landscape picture on a landscape page, at 96 dpi (it's small).
+        let c = page_content(&pdf, 0).unwrap();
+        assert!((c.pictures[0].rect[2] - 30.0).abs() < 0.01, "{:?}", c.pictures[0].rect);
+        let shown = crate::pdf::PdfDocument::from_bytes(std::sync::Arc::new(pdf), "").unwrap();
+        assert!(shown.info.pages[0][0] > shown.info.pages[0][1]);
+        assert!(images_to_pdf(&[]).is_err());
     }
 
     /// A real PDF (`JAYE_TEST_PDF`, e.g. one Word exported): what's found, and a line changed and drawn

@@ -117,14 +117,14 @@ Duas camadas: o **engine** em Rust ([`crates/jay-docs`](../crates/jay-docs), sem
 | 7. Edição | DOCX e ODT editados com a barra de sempre (imagens soltas, tabelas, cabeçalhos da primeira página e das pares, linha de título repetida, páginas, Ctrl+Z); PDF: páginas, anotações e formulários |
 | 8. Conversor | Uma tela para converter arquivos de todos os tipos numa pasta, um formato por tipo, com fila, progresso, Parar e pergunta antes de substituir; 20 arquivos mistos em 3 s, o estragado falha sozinho |
 | 9. Lançamento | O v0.1.0 publicado: instalador NSIS, "Abrir com" para todos os tipos, o Jay-E no Jay-H |
+| 10. Mais ferramentas | Imagens (curvas, filtros, endireitar, anotar, retoque, HEIC/RAW), vídeo (linha do tempo, navalha, velocidade, som, texto, legendas, GIF), PDF (editar o texto, preencher, imagens, tarja, assinatura, comprimir, OCR), documentos (localizar e substituir, palavras, ortografia, comparar), conversor (HTML, LaTeX, páginas como imagens, imagens num PDF, pasta vigiada). Saiu no v0.2.0 |
 
 **Tamanho:** o instalador tem 16,5 MiB, acima da meta de 15 MB por causa do motor do TeX (os dados do ICU são quase tudo).
 
-**Próximas etapas:**
-- **10. Mais ferramentas:** imagens (curvas e níveis, filtros, endireitar, anotar), vídeo (linha do tempo, navalha, velocidade, som, fades, texto por cima), PDF (comprimir, assinar, tarja, OCR), documentos e conversor; ideias do PhotoCraft e do OpenShot (`docs/REFERENCIAS.md`, seção 6).
+**Próximas etapas:** nenhuma planejada; as pendências abaixo e as ideias de `docs/REFERENCIAS.md` (seção 6) que ficaram de fora.
 
 **Pendências** (a lista completa está no [`ROADMAP.md`](../ROADMAP.md)):
-- publicar o primeiro release (v0.1.0), para o atualizador e o Jay-H terem o que achar;
+- testar a atualização do v0.1.0 para o v0.2.0 numa instalação de verdade;
 - LaTeX: compilar sem internet depois da primeira vez, o "Salvar PDF…", o Parar e o tempo limite no app;
 - ver se os dados do ICU podem ser cortados para o que o XeTeX usa, para o instalador voltar aos 15 MB;
 - uma CI que rode `npm test` e os dois `cargo test` a cada push.

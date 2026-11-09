@@ -29,7 +29,7 @@ Every stage ends with something testable. The full plan, with the "done when" ch
   - [x] First-page and even-page headers and footers ("Different first page", "Different odd & even pages"); a table's header row repeated at the top of each page it goes on to.
 - [x] **8. Converter:** one batch screen for every kind of file (images, DOCX/ODT/RTF/Markdown, PDF to text, video and audio), one format per kind, a queue with progress per file, Stop, and asking before overwriting (keep both, replace, skip). 20 mixed files in 3 s; the damaged one failed alone and the other 18 came out.
 - [x] **9. Release:** [v0.1.0](https://github.com/TyxMatty/Jay-E/releases/tag/v0.1.0) published on 2026-11-07: NSIS installer in `%LOCALAPPDATA%\Jay-E` (17 MB), file associations ("Open with"), Jay-E in Jay-H's catalog. Installed, a PDF opened with a double click, and Jay-H found Jay-E.
-- [ ] **10. More tools:** the image and video editors grow (ideas from PhotoCraft and OpenShot, [`docs/REFERENCIAS.en.md`](docs/REFERENCIAS.en.md) section 6), and more ideas for every kind of file.
+- [x] **10. More tools:** the image and video editors grow (ideas from PhotoCraft and OpenShot, [`docs/REFERENCIAS.en.md`](docs/REFERENCIAS.en.md) section 6), and more ideas for every kind of file.
   - [x] Images, tone and color: Curves and Levels with a histogram; exposure, highlights/shadows, temperature and tint, vibrance; black and white; Auto tone, contrast and color. All in the edit list, undoable.
   - [x] Jay brand: the welcome tour and the dialogs animate as in Jay-C (Settings › Appearance › Animations, On/Off), and the accent glow of every Jay app sits behind the sections.
   - [x] Images, filters: sharpen, blur, reduce noise, vignette; color looks from `.cube` LUT files.
@@ -51,17 +51,19 @@ Every stage ends with something testable. The full plan, with the "done when" ch
   - [x] Images: the same edits on many pictures at once; read HEIC and RAW through Windows' own codecs (WIC); see the photo's details (place, camera) and save without them; before/after.
   - [x] Video: shrink to a size (25 MB for Discord, 16 MB for WhatsApp).
   - [x] Video: subtitles (`.srt`, `.vtt`) shown in the player and burned in; save a frame every N seconds.
-  - [ ] PDF: compress (images at a lower resolution); a drawn signature; black out text for good (redaction, the text removed, not covered); make it searchable with Windows' own OCR (`Windows.Media.Ocr`); pictures into one PDF and pages as pictures.
+  - [x] PDF: compress (pictures at 150 dpi at the largest size the page shows them, in JPEG when that's smaller); a drawn signature, kept for next time and put on with a click; redaction for good (the text, the pictures' pixels and the annotations under the box leave the file); make it searchable with Windows' own OCR (`Windows.Media.Ocr`); pictures into one PDF and pages as pictures (in the converter).
   - [x] PDF, editing: change the PDF's own text (words and sentences replaced in place, in the file's font, and the old text really removed); fill in the blanks of any PDF, even without form fields (write on lines and in boxes, tick ✓ or ✗, a date), with the fields found automatically; replace, move or delete a picture on the page.
-  - [ ] Documents: find and replace, word count, spelling in the file's language; compare two versions of a DOCX.
-  - [ ] Converter: read HTML; LaTeX to PDF; a folder watched for new files.
+  - [x] Documents: find and replace (Ctrl+F, Ctrl+H, undone in one step); word count; spelling in the file's language through Windows' spell checker, with suggestions on right-click; compare with an older version, paragraph by paragraph and word by word.
+  - [x] Converter: read HTML; LaTeX to PDF; PDF pages as PNG or JPEG; pictures into one PDF; a watched folder, whose new files are converted as they arrive.
 
 ## To do (found along the way)
 
 - [ ] Converter: try Stop in the middle of a batch in the app.
 
 - [x] Publish the first release: [v0.1.0](https://github.com/TyxMatty/Jay-E/releases/tag/v0.1.0) on 2026-11-07 (17 MB installer, SHA-256 on GitHub).
-- [ ] Try updating from one version to the next (needs a second release).
+- [ ] Try updating from one version to the next: install v0.1.0 and let it find v0.2.0.
+- [ ] PDF: redacting text inside groups (Form XObjects); today redaction is refused there, changing nothing.
+- [ ] Spelling: a document in more than one language is checked only in the file's language; without a Windows dictionary for it, the window's spell checker is used.
 - [ ] Measure the PDF reader's first page in a release build (the 150 ms goal passes in 3 of 5 PDFs in dev).
 - [ ] Try a PDF with a user password, an external link from a PDF, and screen readers on the pages.
 - [ ] The light theme in the PDF reader, the editors and the document view.

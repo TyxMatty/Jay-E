@@ -16,6 +16,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   imageExport: { format: 'webp', quality: 80, lossless: false, maxSide: null },
   /** The batch converter's format per kind of file, by group key (core/convert.js GROUPS). */
   convertTo: {},
+  /** The signature drawn for PDFs (ui/pdf-tools.js): strokes in a box 1 wide, and its height. */
+  signature: null,
   /** The "Welcome!" tour (core/welcome.js) already opened by itself once; Settings › About reopens it. */
   welcomeSeen: false,
 });

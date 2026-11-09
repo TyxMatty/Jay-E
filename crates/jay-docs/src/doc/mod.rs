@@ -5,9 +5,11 @@
 //! The model keeps content and structure (headings, paragraphs, lists, tables, images, links, bold,
 //! italic…), not page layout: fonts, sizes, colors and positioned boxes are dropped (risk 3).
 
+pub mod compare;
 pub mod docx;
 pub mod edit;
 pub mod html;
+pub mod html_read;
 pub mod markdown;
 pub mod odt;
 pub mod odt_edit;
@@ -142,7 +144,7 @@ pub(crate) fn invalid(message: impl Into<String>) -> DocError {
     DocError::Invalid { message: message.into() }
 }
 
-/// Reads a document by its detected format ("docx", "odt", "rtf", "markdown").
+/// Reads a document by its detected format ("docx", "odt", "rtf", "markdown", "html").
 pub fn read(path: &Path, format: &str) -> Result<Document, DocError> {
     let len = std::fs::metadata(path)?.len();
     if len > MAX_FILE_BYTES {
@@ -154,6 +156,7 @@ pub fn read(path: &Path, format: &str) -> Result<Document, DocError> {
         "odt" => odt::read(&bytes),
         "rtf" => rtf::read(&bytes),
         "markdown" => Ok(markdown::read(&String::from_utf8_lossy(&bytes))),
+        "html" => Ok(html_read::read(&crate::text::decode(&bytes).map(|(t, _)| t).unwrap_or_else(|_| String::from_utf8_lossy(&bytes).into_owned()))),
         _ => Err(DocError::Unsupported),
     }
 }

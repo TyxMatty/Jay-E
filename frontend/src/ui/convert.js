@@ -1,11 +1,12 @@
 // The Convert section (stage 8): files of every kind in one list, one format per kind, converted
 // one after another into a folder, with progress per file and a Stop button. Outputs that exist
-// are asked about first (replace, keep both, skip). A file that fails fails alone.
+// are asked about first (replace, keep both, skip). A file that fails fails alone. Stage 10: the
+// pictures in the list joined into one PDF, and a watched folder whose new files are converted.
 import { h } from './dom.js';
 import { icons } from './icons.js';
 import { t } from '../core/i18n.js';
 import { isTauri, pickFiles, formatSize, onFilesOpened } from '../core/files.js';
-import { GROUPS, groupOf, outputOf, pickFolder, checkExisting, startBatch, cancelBatch, describeError } from '../core/convert.js';
+import { GROUPS, groupOf, outputOf, pickFolder, checkExisting, startBatch, cancelBatch, describeError, imagesToPdf, watchFolder, stopWatching } from '../core/convert.js';
 import { settings } from '../store/settings.js';
 import { openFiles } from './files.js';
 
@@ -21,6 +22,7 @@ export function createConvertPanel() {
   const addButton = h('button', { type: 'button', class: 'btn', disabled: !isTauri, onClick: async () => add(await pickFiles()) }, h('span', { class: 'btn-icon', html: icons.plus }), t('Add files…'));
   const addOpenButton = h('button', { type: 'button', class: 'btn btn-secondary', disabled: !isTauri, onClick: () => add(openFiles()) }, t('Add the open files'));
   const clearButton = h('button', { type: 'button', class: 'btn btn-secondary', onClick: () => setQueue([]) }, t('Clear'));
+  const joinButton = h('button', { type: 'button', class: 'btn btn-secondary', title: t('One PDF with a page for each picture in the list, in its order'), onClick: () => joinPictures() }, t('Pictures into one PDF…'));
   const startButton = h('button', { type: 'button', class: 'btn', onClick: () => run() }, t('Convert…'));
   const stopButton = h('button', { type: 'button', class: 'btn btn-danger', hidden: true, onClick: () => cancelBatch().catch(() => {}) }, t('Stop'));
   const empty = h(
@@ -58,9 +60,9 @@ export function createConvertPanel() {
     list.replaceChildren(...queue.map((q) => q.row));
     empty.hidden = queue.length > 0;
     formats.closest('fieldset')?.toggleAttribute('hidden', !formats.childElementCount);
-    // One menu per kind in the list.
+    // One menu per kind in the list (every kind while it's empty, for the watched folder).
     formats.replaceChildren(
-      ...GROUPS.filter((g) => queue.some((q) => groupOf(q.file) === g)).map((g) => {
+      ...GROUPS.filter((g) => !queue.length || queue.some((q) => groupOf(q.file) === g)).map((g) => {
         const id = `cv-to-${g.key}`;
         const select = h('select', { class: 'input', id, disabled: running }, g.to.map(([value, name]) => h('option', { value, selected: value === outputOf({ kind: g.kinds[0] }, choices) }, t(name))));
         select.addEventListener('change', () => {
@@ -73,6 +75,58 @@ export function createConvertPanel() {
     );
     startButton.disabled = running || !queue.some((q) => !q.row.dataset.skip);
     clearButton.disabled = running || !queue.length;
+    joinButton.disabled = running || !isTauri || !queue.some((q) => groupOf(q.file)?.key === 'image');
+  }
+
+  async function joinPictures() {
+    const pictures = queue.filter((q) => groupOf(q.file)?.key === 'image');
+    try {
+      status.textContent = t('Joining {n} pictures…', { n: pictures.length });
+      const where = await imagesToPdf(pictures.map((q) => q.file.path));
+      status.textContent = where ? t('Saved as {path}', { path: where }) : '';
+    } catch (error) {
+      status.textContent = t("Couldn't convert: {error}", { error: describeError(error, t) });
+    }
+  }
+
+  // ----- The watched folder -----
+  let watching = false;
+  const watchStatus = h('p', { class: 'hint', role: 'status' }, t('New files that arrive in a folder are converted into another one, each in the format above for its kind.'));
+  const watchLog = h('ol', { class: 'cv-list cv-watch-log', 'aria-label': t('Converted from the watched folder') });
+  const watchButton = h('button', { type: 'button', class: 'btn btn-secondary', disabled: !isTauri, onClick: () => toggleWatch() }, h('span', { class: 'btn-icon', html: icons.folder }), t('Watch a folder…'));
+  function logRow(text, state) {
+    watchLog.prepend(h('li', { class: 'cv-row', 'data-state': state }, h('span', { class: 'cv-name' }, text)));
+    while (watchLog.childElementCount > 30) watchLog.lastChild.remove();
+  }
+  function setWatching(on) {
+    watching = on;
+    watchButton.lastChild.textContent = on ? t('Stop watching') : t('Watch a folder…');
+    watchButton.setAttribute('aria-pressed', String(on));
+  }
+  async function toggleWatch() {
+    if (watching) return stopWatching().catch(() => {});
+    const all = Object.fromEntries(GROUPS.map((g) => [g.key, choices[g.key] ?? g.to[0][0]]));
+    try {
+      const started = await watchFolder(all, settings.get().imageExport.quality, (e) => {
+        if (e.event === 'watching') {
+          setWatching(true);
+          watchStatus.textContent = t('Watching {folder}; converted files go to {into}.', e);
+        } else if (e.event === 'started') watchStatus.textContent = t('Converting {name}…', e);
+        else if (e.event === 'done') {
+          logRow('✓ ' + e.name + ' → ' + e.output.split(/[\\/]/).pop(), 'done');
+          watchStatus.textContent = t('Waiting for new files…');
+        } else if (e.event === 'failed') {
+          logRow(t("{name}: couldn't convert: {error}", { name: e.name, error: describeError(e.error, t) }), 'failed');
+          watchStatus.textContent = t('Waiting for new files…');
+        } else if (e.event === 'stopped') {
+          setWatching(false);
+          watchStatus.textContent = t('Stopped watching.');
+        }
+      });
+      if (!started) return;
+    } catch (error) {
+      watchStatus.textContent = error === 'same folder' ? t('The converted files need a different folder from the one watched.') : t("Couldn't convert: {error}", { error: describeError(error, t) });
+    }
   }
 
   function setRunning(on) {
@@ -167,9 +221,10 @@ export function createConvertPanel() {
     'section',
     { class: 'app-panel convert-panel' },
     h('h1', {}, t('Convert')),
-    h('fieldset', {}, h('h3', {}, t('Files')), h('div', { class: 'cv-actions' }, addButton, addOpenButton, clearButton), empty, list),
+    h('fieldset', {}, h('h3', {}, t('Files')), h('div', { class: 'cv-actions' }, addButton, addOpenButton, clearButton, joinButton), empty, list),
     h('fieldset', { class: 'cv-formats-card' }, h('h3', {}, t('Formats')), formats),
     h('div', { class: 'cv-run' }, startButton, stopButton, h('div', { class: 'cv-run-status' }, status, total)),
+    h('fieldset', { class: 'cv-watch' }, h('h3', {}, t('Watched folder')), h('div', { class: 'cv-actions' }, watchButton), watchStatus, watchLog),
   );
   setQueue(queue); // now that the cards exist (the empty formats card hides)
   // Files dropped on the window while this section is shown join the list (they open in Files too).

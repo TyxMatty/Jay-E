@@ -119,7 +119,7 @@ fn temp_path(path: &Path) -> PathBuf {
     path.with_file_name(format!(".{name}.jaye-tmp"))
 }
 
-fn decode(bytes: &[u8]) -> Result<(String, Encoding), TextError> {
+pub(crate) fn decode(bytes: &[u8]) -> Result<(String, Encoding), TextError> {
     if let Some(rest) = bytes.strip_prefix(b"\xef\xbb\xbf") {
         return Ok((String::from_utf8_lossy(rest).into_owned(), Encoding::Utf8Bom));
     }

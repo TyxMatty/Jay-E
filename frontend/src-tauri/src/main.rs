@@ -10,6 +10,7 @@ mod image;
 mod latex;
 mod pdf;
 mod pdf_edit;
+mod spell;
 #[cfg(windows)]
 mod taskbar_icon;
 mod text;
@@ -91,6 +92,8 @@ fn main() {
             pdf_edit::pdf_page_content,
             pdf_edit::pdf_edit_content,
             pdf_edit::pdf_replace_image,
+            pdf_edit::pdf_compress,
+            pdf_edit::pdf_make_searchable,
             text::text_open,
             text::text_stamp,
             text::text_save,
@@ -99,6 +102,10 @@ fn main() {
             text::markdown_export_docx,
             doc::doc_open,
             doc::doc_close,
+            doc::doc_compare,
+            spell::spell_check,
+            spell::spell_suggest,
+            spell::spell_add,
             doc::doc_export,
             doc::docx_edit_open,
             doc::docx_edit_save,
@@ -136,6 +143,9 @@ fn main() {
             convert::convert_check,
             convert::convert_start,
             convert::convert_cancel,
+            convert::convert_images_to_pdf,
+            convert::convert_watch_start,
+            convert::convert_watch_stop,
             update::update_check,
             update::update_download,
             update::update_install,

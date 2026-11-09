@@ -1,6 +1,7 @@
 // Editing in the PDF viewer (stage 7): the pages (an organizer to reorder, turn, delete, insert and
 // take pages out), annotations (highlight, draw, note, text, erase) and form fields. Stage 10: the
-// page's own text and pictures (jay_docs::pdf_content), and filling in the blanks of a printed form.
+// page's own text and pictures (jay_docs::pdf_content), and filling in the blanks of a printed form;
+// redaction (what's under a box leaves the file), a drawn signature, compressing, and OCR.
 //
 // Every change goes to Rust (src-tauri/src/pdf_edit.rs → jay_docs::pdf_edit), which makes the new
 // PDF and opens it as a new document; the viewer is rebuilt around it (`rebuild`) where it was. So
@@ -9,9 +10,13 @@ import { h } from './dom.js';
 import { icons } from './icons.js';
 import { t } from '../core/i18n.js';
 import { fetchPage } from '../core/pdf.js';
+import { settings } from '../store/settings.js';
+import { formatSize } from '../core/files.js';
 
 const call = async (cmd, args) => (await import('@tauri-apps/api/core')).invoke(cmd, args);
-const COLORS = { highlight: '#ffd400', draw: '#e53935', note: '#ffd54f', text: '#1a73e8', fill: '#1a1a1a' };
+const COLORS = { highlight: '#ffd400', draw: '#e53935', note: '#ffd54f', text: '#1a73e8', fill: '#1a1a1a', sign: '#1a237e' };
+/** How wide a signature is put on the page, in points. */
+const SIGNATURE_WIDTH = 150;
 /** Tools that work on what the page itself draws (its lines, pictures and blanks). */
 const CONTENT_TOOLS = new Set(['editText', 'pictures', 'fill']);
 /** A CSS family like the PDF font's, for the box the text is edited in. */
@@ -23,6 +28,10 @@ const ORGANIZER_WIDTH = 150;
 function problem(error) {
   if (error?.kind === 'encrypted') return t("Password-protected PDFs can't be edited.");
   if (error?.kind === 'empty') return t('A PDF needs at least one page.');
+  if (error?.message === 'already small') return t('The PDF is already as small as Jay-E can make it.');
+  if (error?.message === 'already searchable') return t('Every page already has text.');
+  if (/no OCR language/.test(error?.message ?? '')) return t('Windows has no text recognition for your languages. Add one in Settings › Time & language › Language.');
+  if (/can't be redacted|can't redact/.test(error?.message ?? '')) return t("This part of the page can't be redacted safely, so nothing was changed.");
   return t("Couldn't change it: {error}", { error: error?.message ?? error?.kind ?? String(error) });
 }
 
@@ -50,7 +59,7 @@ export function createPdfTools({ doc, sizes, pages, scale, scroller, editor, reb
   const dirtyMark = h('span', { class: 'editor-dirty', hidden: !editor.dirty, title: t('Not saved'), 'aria-label': t('Not saved') }, '●');
 
   /** Sends a change; on success the viewer is rebuilt on the new document. */
-  async function change(cmd, args) {
+  async function change(cmd, args, message = '') {
     if (busy) return false;
     busy = true;
     status.textContent = t('Applying…');
@@ -62,7 +71,7 @@ export function createPdfTools({ doc, sizes, pages, scale, scroller, editor, reb
       }
       editor.dirty = edited.dirty;
       editor.canUndo = edited.can_undo;
-      editor.message = '';
+      editor.message = message;
       rebuild(edited);
       return true;
     } catch (error) {
@@ -119,6 +128,8 @@ export function createPdfTools({ doc, sizes, pages, scale, scroller, editor, reb
     toolButton('editText', 'editText', t("Edit the page's text")),
     toolButton('pictures', 'image', t('Move, replace or delete pictures')),
     toolButton('fill', 'fillIn', t('Fill in')),
+    toolButton('redact', 'redact', t('Redact')),
+    toolButton('sign', 'signature', t('Sign')),
   ];
   const colorInput = h('input', { type: 'color', class: 'pdf-color', title: t('Color'), 'aria-label': t('Color') });
   colorInput.addEventListener('input', () => (editor.colors[editor.tool] = colorInput.value));
@@ -139,6 +150,10 @@ export function createPdfTools({ doc, sizes, pages, scale, scroller, editor, reb
   const replaceButton = h('button', { type: 'button', class: 'btn btn-secondary', onClick: () => replacePicture() }, t('Replace…'));
   const deletePictureButton = h('button', { type: 'button', class: 'btn btn-secondary', onClick: () => deletePicture() }, t('Delete'));
   const fillGroup = h('span', { class: 'tb-group', role: 'group', 'aria-label': t('Fill in') }, markSelect, dateButton);
+  const signGroup = h('span', { class: 'tb-group', role: 'group', 'aria-label': t('Sign') }, h('button', { type: 'button', class: 'btn btn-secondary', onClick: () => drawSignature() }, t('New signature…')));
+  // The whole file: smaller, or searchable.
+  const compressButton = h('button', { type: 'button', class: 'btn btn-secondary', title: t('Pictures at 150 dpi, everything compressed'), onClick: () => compress() }, t('Compress'));
+  const ocrButton = h('button', { type: 'button', class: 'btn btn-secondary', title: t('Reads the pages that are only pictures (scans) and puts their text in, so it can be searched and copied'), onClick: () => makeSearchable() }, t('Make searchable'));
   const pictureGroup = h('span', { class: 'tb-group', role: 'group', 'aria-label': t('Picture') }, replaceButton, deletePictureButton);
   function setTool(tool) {
     editor.tool = tool;
@@ -149,11 +164,19 @@ export function createPdfTools({ doc, sizes, pages, scale, scroller, editor, reb
     sizeSelect.hidden = tool !== 'text' && tool !== 'fill';
     sizeSelect.value = String(tool === 'fill' ? editor.fillSize : editor.textSize);
     fillGroup.hidden = tool !== 'fill';
+    signGroup.hidden = tool !== 'sign';
     pictureGroup.hidden = tool !== 'pictures';
     replaceButton.disabled = deletePictureButton.disabled = !editor.picture;
-    const hints = { editText: t('Click a line of text to change it.'), pictures: t('Drag a picture to move it; its corner sizes it.'), fill: t('Click a blank or anywhere to write; click a box to mark it.') };
-    status.textContent = hints[tool] ?? editor.message ?? '';
+    const hints = {
+      editText: t('Click a line of text to change it.'),
+      pictures: t('Drag a picture to move it; its corner sizes it.'),
+      fill: t('Click a blank or anywhere to write; click a box to mark it.'),
+      redact: t('Drag a box over what to remove: the text and pictures under it leave the file, not just covered.'),
+      sign: t('Click where the signature goes.'),
+    };
+    status.textContent = editor.message || hints[tool] || '';
     layered.forEach(decorate);
+    if (tool === 'sign' && !settings.get().signature) drawSignature();
   }
   const pagesButton = h('button', { type: 'button', class: 'btn btn-secondary', 'aria-pressed': String(!!editor.organizer), onClick: () => toggleOrganizer() }, h('span', { class: 'btn-icon', html: icons.pages }), t('Pages'));
   const undoButton = h('button', { type: 'button', class: 'icon-btn', title: t('Undo (Ctrl+Z)'), 'aria-label': t('Undo (Ctrl+Z)'), html: icons.undo, disabled: !editor.canUndo, onClick: () => undo() });
@@ -166,7 +189,9 @@ export function createPdfTools({ doc, sizes, pages, scale, scroller, editor, reb
     h('span', { class: 'tb-group', role: 'group', 'aria-label': t('Tools') }, tools, colorInput, sizeSelect),
     fillGroup,
     pictureGroup,
+    signGroup,
     h('span', { class: 'tb-group', role: 'group', 'aria-label': t('History') }, undoButton),
+    h('span', { class: 'tb-group', role: 'group', 'aria-label': t('The whole file') }, compressButton, ocrButton),
     h('span', { class: 'dx-toolbar-end' }, dirtyMark, status, saveButton),
   );
   if (editor.message) status.textContent = editor.message;
@@ -216,6 +241,35 @@ export function createPdfTools({ doc, sizes, pages, scale, scroller, editor, reb
       };
       addEventListener('pointermove', move);
       addEventListener('pointerup', up);
+    } else if (editor.tool === 'redact') {
+      e.preventDefault();
+      const start = pointOn(p, e);
+      const box = h('div', { class: 'pdf-redact-live', 'aria-hidden': 'true' });
+      p.el.append(box);
+      let rect = [...start, 0, 0];
+      const move = (ev) => {
+        const [x, y] = pointOn(p, ev);
+        rect = [Math.min(x, start[0]), Math.min(y, start[1]), Math.abs(x - start[0]), Math.abs(y - start[1])];
+        place(box, rect);
+      };
+      const up = async () => {
+        removeEventListener('pointermove', move);
+        removeEventListener('pointerup', up);
+        if (rect[2] < 2 || rect[3] < 2) return box.remove();
+        const done = await change('pdf_edit_content', { op: { op: 'redact', page: p.index, rect: rect.map(round) } }, t('Redacted. Save to make it final: until then Undo brings it back.'));
+        if (!done) box.remove();
+      };
+      addEventListener('pointermove', move);
+      addEventListener('pointerup', up);
+    } else if (editor.tool === 'sign') {
+      e.preventDefault();
+      const signature = settings.get().signature;
+      if (!signature) return drawSignature();
+      const [x, y] = pointOn(p, e);
+      const w = SIGNATURE_WIDTH;
+      const hgt = w * signature.aspect;
+      const strokes = signature.strokes.map((s) => s.map(([u, v]) => [round(x - w / 2 + u * w), round(y - hgt / 2 + v * w)]));
+      apply({ op: 'ink', page: p.index, strokes, color: editor.colors.sign, width: 1.6 });
     } else if (editor.tool === 'fill' && !e.target.closest('.pdf-content > *, .pdf-inline')) {
       e.preventDefault();
       const [x, y] = pointOn(p, e);
@@ -483,6 +537,113 @@ export function createPdfTools({ doc, sizes, pages, scale, scroller, editor, reb
   function layer(p) {
     layered.add(p);
     decorate(p);
+  }
+
+  // ----- Signature, compress, OCR -----
+  /** A pad to draw the signature on; kept in the settings for the next time. */
+  function drawSignature() {
+    const W = 480;
+    const H = 180;
+    const canvas = h('canvas', { class: 'pdf-sign-pad', width: String(W * devicePixelRatio), height: String(H * devicePixelRatio), 'aria-label': t('Draw your signature here') });
+    canvas.style.aspectRatio = `${W} / ${H}`;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = ctx.lineJoin = 'round';
+    ctx.strokeStyle = editor.colors.sign;
+    /** @type {[number, number][][]} */
+    let strokes = [];
+    const at = (e) => {
+      const r = canvas.getBoundingClientRect();
+      return [((e.clientX - r.left) / r.width) * W, ((e.clientY - r.top) / r.height) * H];
+    };
+    canvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      canvas.setPointerCapture(e.pointerId);
+      strokes.push([at(e)]);
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      const stroke = canvas.hasPointerCapture(e.pointerId) && strokes.at(-1);
+      if (!stroke) return;
+      const q = at(e);
+      const last = stroke.at(-1);
+      if (Math.hypot(q[0] - last[0], q[1] - last[1]) < 1.5) return;
+      ctx.beginPath();
+      ctx.moveTo(...last);
+      ctx.lineTo(...q);
+      ctx.stroke();
+      stroke.push(q);
+    });
+    const use = () => {
+      const points = strokes.flat();
+      if (points.length < 2) return dialog.close();
+      const xs = points.map((q) => q[0]);
+      const ys = points.map((q) => q[1]);
+      const [x0, y0] = [Math.min(...xs), Math.min(...ys)];
+      const w = Math.max(1, Math.max(...xs) - x0);
+      const hgt = Math.max(1, Math.max(...ys) - y0);
+      // In a box 1 wide, its height in proportion.
+      const norm = strokes.map((s) => (s.length === 1 ? [s[0], [s[0][0] + 0.5, s[0][1]]] : s).map(([x, y]) => [Math.round(((x - x0) / w) * 1000) / 1000, Math.round(((y - y0) / w) * 1000) / 1000]));
+      settings.update({ signature: { strokes: norm, aspect: hgt / w } });
+      dialog.close();
+      status.textContent = t('Click where the signature goes.');
+    };
+    const dialog = h(
+      'dialog',
+      { class: 'img-dialog pdf-sign-dialog', 'aria-labelledby': 'pdf-sign-title' },
+      h('h2', { id: 'pdf-sign-title' }, t('Your signature')),
+      h('p', { class: 'hint' }, t('Draw it with the mouse, a pen or a finger. Jay-E keeps it for next time.')),
+      canvas,
+      h(
+        'div',
+        { class: 'img-dialog-actions' },
+        h('button', { type: 'button', class: 'btn', onClick: use }, t('Use it')),
+        h('button', { type: 'button', class: 'btn btn-secondary', onClick: () => ((strokes = []), ctx.clearRect(0, 0, W, H)) }, t('Clear')),
+        h('button', { type: 'button', class: 'btn btn-secondary', onClick: () => dialog.close() }, t('Cancel')),
+      ),
+    );
+    dialog.addEventListener('close', () => dialog.remove());
+    document.body.append(dialog);
+    dialog.showModal();
+  }
+
+  async function compress() {
+    if (busy) return;
+    busy = true;
+    status.textContent = t('Compressing…');
+    try {
+      const done = await call('pdf_compress', { doc });
+      editor.dirty = done.edited.dirty;
+      editor.canUndo = done.edited.can_undo;
+      editor.message = t('{before} → {after}. Save to keep it.', { before: formatSize(done.before), after: formatSize(done.after) });
+      busy = false;
+      rebuild(done.edited);
+    } catch (error) {
+      status.textContent = problem(error);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function makeSearchable() {
+    if (busy) return;
+    busy = true;
+    status.textContent = t('Reading the pages…');
+    try {
+      const { Channel } = await import('@tauri-apps/api/core');
+      const progress = new Channel();
+      progress.onmessage = ([done, all]) => (status.textContent = t('Reading page {done} of {all}…', { done, all }));
+      const done = await call('pdf_make_searchable', { doc, progress });
+      editor.dirty = done.edited.dirty;
+      editor.canUndo = done.edited.can_undo;
+      editor.message = t('Text found on {n} page(s). Save to keep it.', { n: done.pages });
+      busy = false;
+      rebuild(done.edited);
+    } catch (error) {
+      status.textContent = problem(error);
+    } finally {
+      busy = false;
+    }
   }
 
   // ----- The page organizer -----

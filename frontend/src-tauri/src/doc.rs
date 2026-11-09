@@ -54,6 +54,35 @@ pub async fn doc_open(path: PathBuf, format: String, paths: State<'_, OpenedPath
     Ok(Opened { id, html, images })
 }
 
+#[derive(Serialize)]
+pub struct Compared {
+    /// The other file's name.
+    other: String,
+    paragraphs: Vec<doc::compare::Paragraph>,
+}
+
+/// Compares `path` (the newer version, as saved) with an older version the person picks, by text.
+/// `None` if they cancel.
+#[tauri::command]
+pub async fn doc_compare(path: PathBuf, app: AppHandle) -> Result<Option<Compared>, DocError> {
+    if !app.state::<OpenedPaths>().contains(&path) {
+        return Err(DocError::Io { message: "not an opened file".into() });
+    }
+    let mut dialog = app.dialog().file().set_title("The older version").add_filter("Documents", &["docx", "odt", "rtf", "md", "markdown", "html", "htm"]);
+    if let Some(dir) = path.parent() {
+        dialog = dialog.set_directory(dir);
+    }
+    let Some(other) = dialog.blocking_pick_file().and_then(|p| p.into_path().ok()) else { return Ok(None) };
+    let name = other.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let read = |p: &Path| -> Result<Document, DocError> {
+        let (_, format) = jay_docs::detect(p)?;
+        let ext = p.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+        doc::read(p, if format == "text" && ext.starts_with("htm") { "html" } else { format })
+    };
+    let paragraphs = tauri::async_runtime::spawn_blocking(move || Ok::<_, DocError>(doc::compare::compare(&read(&other)?, &read(&path)?))).await.map_err(|e| DocError::Io { message: e.to_string() })??;
+    Ok(Some(Compared { other: name, paragraphs }))
+}
+
 #[tauri::command]
 pub fn doc_close(id: u32, docs: State<Documents>, editors: State<Editors>) {
     docs.open.lock().unwrap().remove(&id);

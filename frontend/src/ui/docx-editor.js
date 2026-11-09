@@ -6,11 +6,17 @@
 // `data-r` (the run its properties come from); images, fields and other things shown but not edited
 // are `.dx-atom[data-a]`. Paragraph settings live in data attributes (data-style, data-num,
 // data-align, data-ind, data-line) that the toolbar changes and the save sends back.
+//
+// Stage 10: find and replace (docx-find.js), spelling in the file's language (docx-spell.js), a
+// word count, and comparing with an older version (docx-compare.js).
 import { h } from './dom.js';
 import { icons } from './icons.js';
 import { t } from '../core/i18n.js';
 import { openLink } from '../core/pdf.js';
 import { styleClass, defaultLevels, listMarkers, toHex, firstFamily, normalProps, sameProps, runSet } from '../core/docx.js';
+import { createFindBar } from './docx-find.js';
+import { createSpelling } from './docx-spell.js';
+import { showComparison } from './docx-compare.js';
 
 const call = async (cmd, args) => (await import('@tauri-apps/api/core')).invoke(cmd, args);
 const ZOOMS = [0.5, 0.75, 0.9, 1, 1.25, 1.5, 2];
@@ -109,7 +115,20 @@ export async function createDocxEditor(file, fallback) {
       changed = true;
       showDirty();
     }
-    if (records.length) scheduleRenumber();
+    if (records.length) {
+      scheduleRenumber();
+      scheduleIdle();
+    }
+  }
+  let idleTimer = 0;
+  /** After a pause in typing: the word count, spelling and find results catch up. */
+  function scheduleIdle() {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      countWords();
+      spelling?.schedule();
+      find?.refresh();
+    }, 600);
   }
 
   // ----- Lists -----
@@ -896,6 +915,34 @@ export async function createDocxEditor(file, fallback) {
   });
 
   const status = h('span', { class: 'hint doc-status', role: 'status' });
+  const wordsEl = h('span', { class: 'hint dx-words' });
+  function countWords() {
+    const paras = [...body.querySelectorAll('p')].filter((p) => !p.closest('.dx-repeat, .dx-spacer'));
+    let words = 0;
+    let chars = 0;
+    for (const p of paras) {
+      const text = p.textContent;
+      words += (text.match(/\S+/g) ?? []).length;
+      chars += text.replace(/\s/g, '').length;
+    }
+    wordsEl.textContent = words === 1 ? t('1 word') : t('{n} words', { n: words.toLocaleString(document.documentElement.lang || undefined) });
+    wordsEl.title = [t('{n} characters, without spaces', { n: chars.toLocaleString(document.documentElement.lang || undefined) }), wordsEl.dataset.lang].filter(Boolean).join('\n');
+  }
+  // ----- Find, spelling, compare -----
+  let find = null;
+  let spelling = null;
+  /** The language the text is in: the file's, or the window's. */
+  const lang = view.lang || document.documentElement.lang || navigator.language;
+  async function compareIt() {
+    status.textContent = changed ? t('Comparing the saved file (save to include your changes)…') : t('Comparing…');
+    try {
+      const compared = await call('doc_compare', { path: file.path });
+      status.textContent = '';
+      if (compared) showComparison(compared, file.name);
+    } catch (error) {
+      status.textContent = t("Couldn't compare: {error}", { error: error?.message ?? error?.kind ?? String(error) });
+    }
+  }
   const dirtyMark = h('span', { class: 'editor-dirty', hidden: true, title: t('Not saved'), 'aria-label': t('Not saved') }, '●');
   const saveButton = h('button', { type: 'button', class: 'btn', onClick: () => save() }, t('Save'));
   const exportSelect = h(
@@ -1004,7 +1051,8 @@ export async function createDocxEditor(file, fallback) {
       button('indent', t('Increase indent'), () => indent(1)),
       button('clearFormat', t('Clear formatting'), () => exec('removeFormat')),
     ),
-    h('span', { class: 'dx-toolbar-end' }, dirtyMark, status, group(t('Export as'), exportSelect, h('button', { type: 'button', class: 'btn btn-secondary', onClick: exportIt }, t('Export'))), saveButton),
+    group(t('Review'), button('search', t('Find and replace (Ctrl+F)'), () => find.open()), button('compare', t('Compare with an older version…'), () => compareIt())),
+    h('span', { class: 'dx-toolbar-end' }, wordsEl, dirtyMark, status, group(t('Export as'), exportSelect, h('button', { type: 'button', class: 'btn btn-secondary', onClick: exportIt }, t('Export'))), saveButton),
   );
 
   /** The toolbar shows what is under the cursor. */
@@ -1357,7 +1405,27 @@ export async function createDocxEditor(file, fallback) {
       openLink(a.getAttribute('href')).catch(() => {});
     }
   });
-  const root = h('div', { class: 'doc-viewer dx-editor' }, styleEl, toolbar, stage);
+  find = createFindBar({
+    paragraphs: () => allIn('p'),
+    focusIn: (el) => (editables().find((e) => e.contains(el)) ?? body).focus({ preventScroll: true }),
+    checkpoint: () => checkpoint(),
+    changed: () => refresh(),
+  });
+  body.lang = lang;
+  for (const m of marginEls) m.lang = lang;
+  spelling = createSpelling({
+    key: docKey,
+    lang,
+    paragraphs: () => allIn('p'),
+    boxes: [body, ...marginEls],
+    page,
+    checkpoint: () => checkpoint(),
+    onLang: (checked) => {
+      wordsEl.dataset.lang = checked ? t('Spelling: {lang}', { lang: checked }) : t('Spelling: the window’s languages');
+      countWords();
+    },
+  });
+  const root = h('div', { class: 'doc-viewer dx-editor' }, styleEl, toolbar, find.bar, stage);
   root.addEventListener('keydown', (e) => {
     if (picked && (e.key === 'Delete' || e.key === 'Backspace')) {
       e.preventDefault();
@@ -1381,7 +1449,10 @@ export async function createDocxEditor(file, fallback) {
     }
     if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
     const key = e.key.toLowerCase();
-    if (key === 'z' && !e.shiftKey) {
+    if (key === 'f' || key === 'h') {
+      e.preventDefault();
+      find.open(key === 'h');
+    } else if (key === 'z' && !e.shiftKey) {
       e.preventDefault();
       undo();
     } else if (key === 'y' || (key === 'z' && e.shiftKey)) {
@@ -1401,13 +1472,20 @@ export async function createDocxEditor(file, fallback) {
 
   document.execCommand('defaultParagraphSeparator', false, 'p');
   render(view);
+  countWords();
+  spelling.schedule();
   new ResizeObserver(() => {
     if (!stage.isConnected || !stage.clientWidth) return;
     layout();
     scheduleRenumber();
+    // Laying out can rebuild what the spelling and find marks pointed at.
+    scheduleIdle();
   }).observe(stage);
   root.isDirty = () => changed;
   root.dispose = () => {
+    clearTimeout(idleTimer);
+    spelling.dispose();
+    find.close();
     observer.disconnect();
     document.removeEventListener('selectionchange', onSelection);
     call('doc_close', { id }).catch(() => {});
