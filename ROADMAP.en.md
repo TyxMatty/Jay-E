@@ -52,6 +52,7 @@ Every stage ends with something testable. The full plan, with the "done when" ch
   - [x] Video: shrink to a size (25 MB for Discord, 16 MB for WhatsApp).
   - [x] Video: subtitles (`.srt`, `.vtt`) shown in the player and burned in; save a frame every N seconds.
   - [ ] PDF: compress (images at a lower resolution); a drawn signature; black out text for good (redaction, the text removed, not covered); make it searchable with Windows' own OCR (`Windows.Media.Ocr`); pictures into one PDF and pages as pictures.
+  - [ ] PDF, editing: change the PDF's own text (words and sentences replaced in place, in the file's font, and the old text really removed); fill in the blanks of any PDF, even without form fields (write on lines and in boxes, tick ✓ or ✗, a date), with the fields found automatically; replace, move or delete a picture on the page.
   - [ ] Documents: find and replace, word count, spelling in the file's language; compare two versions of a DOCX.
   - [ ] Converter: read HTML; LaTeX to PDF; a folder watched for new files.
 

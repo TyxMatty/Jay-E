@@ -52,6 +52,7 @@ Cada etapa termina com algo testável. O plano completo, com os testes de "pront
   - [x] Vídeo: encolher para um tamanho (25 MB para o Discord, 16 MB para o WhatsApp).
   - [x] Vídeo: legendas (`.srt`, `.vtt`) mostradas no player e gravadas no vídeo; salvar um quadro a cada N segundos.
   - [ ] PDF: comprimir (imagens em resolução menor); uma assinatura desenhada; tarjar texto de verdade (redação: o texto removido, não coberto); deixar pesquisável com o OCR do próprio Windows (`Windows.Media.Ocr`); imagens num PDF só e páginas como imagens.
+  - [ ] PDF, editar: mudar o texto do próprio PDF (palavras e frases trocadas no lugar, na fonte do arquivo, e o texto antigo removido de verdade); preencher os espaços de qualquer PDF, mesmo sem campos de formulário (escrever em linhas e caixas, marcar ✓ ou ✗, data), com os campos achados sozinhos; trocar, mover ou apagar uma imagem da página.
   - [ ] Documentos: localizar e substituir, contar palavras, ortografia no idioma do arquivo; comparar duas versões de um DOCX.
   - [ ] Conversor: ler HTML; LaTeX para PDF; uma pasta vigiada para arquivos novos.
 
