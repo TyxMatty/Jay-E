@@ -1,6 +1,6 @@
 [package]
 name = "jay-docs"
-version = "0.2.2"
+version = "0.2.3"
 description = "Jay-E's engine: file detection, documents, images and video, without Tauri"
 authors = ["TyxMatty"]
 license = "MIT"

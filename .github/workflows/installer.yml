@@ -62,7 +62,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: TyxMatty/Jay-I
-          ref: f4f9ef07c0cf49abd1f53d3caa00c69e5aa1c90a
+          ref: 60de872dee82c5be37d2ea15c5f94d0dddffde26
           path: jay-i
           persist-credentials: false
       - name: Build the Jay-I setup around the NSIS installer

@@ -1,6 +1,6 @@
 [package]
 name = "jay-e"
-version = "0.2.2"
+version = "0.2.3"
 description = "Jay-E — documents, images and video: read, edit and convert"
 authors = ["TyxMatty"]
 license = "MIT"
@@ -23,7 +23,7 @@ jay-docs = { path = "../../crates/jay-docs", features = ["tex"] }
 image = { version = "0.25", default-features = false }
 rayon = "1"
 # The shared updater of the Jay line; bump together with the Jay-I `ref` in .github/workflows/installer.yml.
-jay-i = { git = "https://github.com/TyxMatty/Jay-I", rev = "f4f9ef07c0cf49abd1f53d3caa00c69e5aa1c90a" }
+jay-i = { git = "https://github.com/TyxMatty/Jay-I", rev = "60de872dee82c5be37d2ea15c5f94d0dddffde26" }
 
 [profile.release]
 # Smaller, leaner binaries (same as Jay-C).
