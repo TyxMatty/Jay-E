@@ -2,7 +2,7 @@
 
 **Português** · [English](CONTINUAR.en.md)
 
-Atualizado em 2026-11-07, depois da etapa 6 (LaTeX). Tudo o que é preciso para montar o Jay-E do zero, rodar, entender como cada parte funciona e saber o que vem a seguir. O plano completo, com as medições de cada etapa, está em [`ARQUITETURA.md`](ARQUITETURA.md).
+Atualizado em 2026-11-10, depois do 0.2.2: o setup do Jay-I. Tudo o que é preciso para montar o Jay-E do zero, rodar, entender como cada parte funciona e saber o que vem a seguir. O plano completo, com as medições de cada etapa, está em [`ARQUITETURA.md`](ARQUITETURA.md).
 
 ## 0. No PC que já tem o projeto
 
@@ -62,7 +62,7 @@ VCPKGRS_TRIPLET = "x64-windows-static-md"
 ```powershell
 npm run dev        # abre o app (o 1º build compila o motor do TeX; leva uns 10 minutos)
 npm run web        # só a interface no navegador, sem Tauri (porta 5177; não abre arquivos)
-npm run build      # o instalador NSIS, em <target-dir>\release\bundle\nsis\
+npm run build      # o instalador NSIS, em <target-dir>\release\bundle\nsis\ (o setup da release, que leva o NSIS dentro, só sai na CI, ou à mão com o scripts/build-setup.ps1 do Jay-I)
 ```
 
 Testes:
@@ -99,7 +99,7 @@ Duas camadas: o **engine** em Rust ([`crates/jay-docs`](../crates/jay-docs), sem
 | DOCX, ODT, RTF | `doc/` | Um modelo de documento próprio no meio: cada formato é lido para ele e escrito a partir dele (DOCX, Markdown, HTML, texto). A página mostra numa folha A4; o PDF sai pela impressão da WebView2. |
 | Conversor | `src-tauri/src/convert.rs`, `ui/convert.js` | Uma fila numa thread: cada arquivo vai para o conversor do seu tipo (imagem, documento, PDF para texto, vídeo), é gravado num temporário e renomeado no fim, e conta o resultado sozinho; um erro não para os outros. A pasta é escolhida no Rust. |
 | Vídeo | `video/mp4.rs`, `video/mf.rs` | Cortar e juntar copiando as amostras do MP4, sem recodificar (o `mp4-atom` reescreve as tabelas). Converter e tirar quadro passam pelo Media Foundation do Windows, que usa a GPU quando há. |
-| Atualizações | `src-tauri/src/update.rs` | Ao abrir, confere o release mais novo no GitHub; o instalador só roda se o SHA-256 bater com o do GitHub, como no Jay-H. |
+| Atualizações | `src-tauri/src/update.rs` | Ao abrir, confere o release mais novo no GitHub pela crate `jay-i` da linha (git, fixada por commit; a mesma do Jay-S); o setup só roda se tamanho e SHA-256 baterem com os do GitHub. |
 | Estilos e idioma | `frontend/src/styles`, `locales` | Os estilos Calmo, Neon e Suave do Jay-C, claro ou escuro; inglês ou português. |
 
 ## 5. Estado atual
@@ -118,8 +118,9 @@ Duas camadas: o **engine** em Rust ([`crates/jay-docs`](../crates/jay-docs), sem
 | 8. Conversor | Uma tela para converter arquivos de todos os tipos numa pasta, um formato por tipo, com fila, progresso, Parar e pergunta antes de substituir; 20 arquivos mistos em 3 s, o estragado falha sozinho |
 | 9. Lançamento | O v0.1.0 publicado: instalador NSIS, "Abrir com" para todos os tipos, o Jay-E no Jay-H |
 | 10. Mais ferramentas | Imagens (curvas, filtros, endireitar, anotar, retoque, HEIC/RAW), vídeo (linha do tempo, navalha, velocidade, som, texto, legendas, GIF), PDF (editar o texto, preencher, imagens, tarja, assinatura, comprimir, OCR), documentos (localizar e substituir, palavras, ortografia, comparar), conversor (HTML, LaTeX, páginas como imagens, imagens num PDF, pasta vigiada). Saiu no v0.2.0 |
+| 0.2.2. Setup do Jay-I | O arquivo da release agora é o setup do Jay-I, que leva o instalador NSIS dentro e o roda em silêncio; o atualizador deixou de ser uma cópia própria e é a crate `jay-i` da linha (detalhes e os 10 pontos na seção 7 da `ARQUITETURA.md`) |
 
-**Tamanho:** o instalador tem 16,5 MiB, acima da meta de 15 MB por causa do motor do TeX (os dados do ICU são quase tudo).
+**Tamanho:** o instalador NSIS tem 17,59 MiB (18 446 431 bytes, medido no 0.2.2), acima da meta de 15 MB por causa do motor do TeX (os dados do ICU são quase tudo); o setup publicado tem 20,67 MiB (21 674 496 bytes, montado aqui com o mesmo passo do workflow; o NSIS está dentro dele, byte a byte) (teto de 30 MB na CI).
 
 **Próximas etapas:** nenhuma planejada; as pendências abaixo e as ideias de `docs/REFERENCIAS.md` (seção 6) que ficaram de fora.
 

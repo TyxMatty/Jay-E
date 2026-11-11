@@ -2,6 +2,9 @@
 # Actions tab, as in Jay-H. A tag also gets a *draft* release with the installer attached: Jay-E's
 # updater (src-tauri/src/update.rs) and Jay-H only see it once it's published by hand, after the
 # notes are written and the installer was tried on a test PC.
+# The artifact and the draft release carry the Jay-I setup that carries the NSIS installer, never the
+# raw NSIS file. The Jay-I pin (ref of the second checkout) must be bumped together with `jay-i` in
+# frontend/src-tauri/Cargo.toml.
 name: Installer
 
 on:
@@ -22,7 +25,7 @@ jobs:
       TECTONIC_DEP_BACKEND: vcpkg
       VCPKGRS_TRIPLET: x64-windows-static-md
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The updater compares the tag with the installed version: a tag that isn't the app's version
       # would offer an update forever.
       - name: The tag is the app's version
@@ -31,16 +34,18 @@ jobs:
         run: |
           $version = (Get-Content frontend/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
           if ("v$version" -ne $env:GITHUB_REF_NAME) { throw "tag $env:GITHUB_REF_NAME, tauri.conf.json $version" }
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # the "stable" branch
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: frontend/src-tauri
+          workspaces: |
+            frontend/src-tauri
+            jay-i
       # vcpkg comes with the runner; its built packages are cached (ICU alone takes ~20 min).
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/AppData/Local/vcpkg/archives
           key: vcpkg-static-md-icu-freetype-graphite2-fontconfig-libpng
@@ -52,14 +57,45 @@ jobs:
       - run: npm ci
       # tauri build: vite build, cargo build --release, then the NSIS installer.
       - run: npm run build
-      - uses: actions/upload-artifact@v7
+      # The release asset is the Jay-I setup (a small window that carries the NSIS installer above),
+      # pinned to the same commit as the jay-i dependency in frontend/src-tauri/Cargo.toml.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: TyxMatty/Jay-I
+          ref: f4f9ef07c0cf49abd1f53d3caa00c69e5aa1c90a
+          path: jay-i
+          persist-credentials: false
+      - name: Build the Jay-I setup around the NSIS installer
+        shell: pwsh
+        run: |
+          $version = (Get-Content frontend/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $name = "Jay-E_${version}_x64-setup.exe"
+          $nsis = Join-Path $PWD 'frontend/src-tauri/target/release/bundle/nsis'
+          $raw = @(Get-ChildItem -LiteralPath $nsis -Filter $name -File)
+          if ($raw.Count -ne 1) { throw "expected exactly one $name in $nsis, found $($raw.Count)" }
+          $out = Join-Path $PWD 'setup-out'
+          & (Join-Path $PWD 'jay-i/scripts/build-setup.ps1') `
+            -Payload $raw[0].FullName -Name Jay-E -Version $version -Exe jay-e.exe `
+            -Icon (Join-Path $PWD 'frontend/src-tauri/icons/icon.ico') `
+            -Mark (Join-Path $PWD 'frontend/src-tauri/icons/128x128@2x.png') `
+            -OutDir $out
+          if ($LASTEXITCODE -ne 0) { throw "build-setup.ps1 failed ($LASTEXITCODE)" }
+          $setup = @(Get-ChildItem -LiteralPath $out -File)
+          if ($setup.Count -ne 1 -or $setup[0].Name -ne $name) { throw "setup-out must hold only $name" }
+          # RNF-3's goal is 15 MB, but the NSIS installer alone is ~17 MB because of the TeX engine; this cap
+          # catches a setup that ballooned. The same size as the raw installer means it was copied by mistake.
+          if ($setup[0].Length -gt 30 * 1024 * 1024) { throw "$name is $($setup[0].Length) bytes, over 30 MB" }
+          if ($setup[0].Length -eq $raw[0].Length) { throw "$name is the raw NSIS installer, not the setup" }
+          Write-Host "$name ($($setup[0].Length) bytes)"
+      # Only the setup is uploaded: the hub takes any release asset ending in _x64-setup.exe.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Jay-E-installer-${{ github.ref_name }}
-          path: frontend/src-tauri/target/release/bundle/nsis/*.exe
+          path: setup-out/*_x64-setup.exe
           if-no-files-found: error
       - name: Draft release
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create $env:GITHUB_REF_NAME --draft --generate-notes --title "Jay-E $env:GITHUB_REF_NAME" (Get-Item frontend/src-tauri/target/release/bundle/nsis/*_x64-setup.exe).FullName
+        run: gh release create $env:GITHUB_REF_NAME --draft --generate-notes --title "Jay-E $env:GITHUB_REF_NAME" (Get-Item setup-out/*_x64-setup.exe).FullName

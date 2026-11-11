@@ -3257,7 +3257,7 @@ dependencies = [
 
 [[package]]
 name = "jay-docs"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "ammonia",
  "hayro",
@@ -3281,22 +3281,31 @@ dependencies = [
 
 [[package]]
 name = "jay-e"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "image",
  "jay-docs",
+ "jay-i",
  "rayon",
- "semver",
  "serde",
  "serde_json",
- "sha2 0.10.9",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
- "ureq",
  "windows",
+]
+
+[[package]]
+name = "jay-i"
+version = "0.1.0"
+source = "git+https://github.com/TyxMatty/Jay-I?rev=f4f9ef07c0cf49abd1f53d3caa00c69e5aa1c90a#f4f9ef07c0cf49abd1f53d3caa00c69e5aa1c90a"
+dependencies = [
+ "serde",
+ "sha2 0.10.9",
+ "ureq",
+ "winreg",
 ]
 
 [[package]]

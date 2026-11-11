@@ -2,7 +2,7 @@
 
 [Português](CONTINUAR.md) · **English**
 
-Updated on 2026-11-07, after stage 6 (LaTeX). Everything needed to set Jay-E up from scratch, run it, understand how each part works and know what comes next. The full plan, with each stage's measurements, is in [`ARQUITETURA.en.md`](ARQUITETURA.en.md).
+Updated on 2026-11-10, after 0.2.2: Jay-I's setup. Everything needed to set Jay-E up from scratch, run it, understand how each part works and know what comes next. The full plan, with each stage's measurements, is in [`ARQUITETURA.en.md`](ARQUITETURA.en.md).
 
 ## 0. On a PC that already has the project
 
@@ -62,7 +62,7 @@ VCPKGRS_TRIPLET = "x64-windows-static-md"
 ```powershell
 npm run dev        # opens the app (the 1st build compiles the TeX engine; about 10 minutes)
 npm run web        # only the interface in a browser, without Tauri (port 5177; opens no files)
-npm run build      # the NSIS installer, in <target-dir>\release\bundle\nsis\
+npm run build      # the NSIS installer, in <target-dir>\release\bundle\nsis\ (the release's setup, which carries the NSIS inside, is built only in CI, or by hand with Jay-I's scripts/build-setup.ps1)
 ```
 
 Tests:
@@ -99,7 +99,7 @@ Two layers: the **engine** in Rust ([`crates/jay-docs`](../crates/jay-docs), no 
 | DOCX, ODT, RTF | `doc/` | Jay-E's own document model in the middle: each format is read into it and written from it (DOCX, Markdown, HTML, text). The page shows it on an A4 sheet; PDF comes from WebView2's printing. |
 | Converter | `src-tauri/src/convert.rs`, `ui/convert.js` | A queue on one thread: each file goes to the converter for its kind (image, document, PDF to text, video), is written to a temporary file and renamed at the end, and reports on its own; an error doesn't stop the others. The folder is picked in Rust. |
 | Video | `video/mp4.rs`, `video/mf.rs` | Cutting and joining copy the MP4's samples without re-encoding (`mp4-atom` rewrites the tables). Converting and saving frames go through Windows' Media Foundation, which uses the GPU when there is one. |
-| Updates | `src-tauri/src/update.rs` | At startup, checks the latest release on GitHub; the installer only runs if its SHA-256 matches GitHub's, as in Jay-H. |
+| Updates | `src-tauri/src/update.rs` | At startup, checks the latest release on GitHub through the line's `jay-i` crate (git, pinned by commit; the same one Jay-S uses); the setup only runs if its size and SHA-256 match GitHub's. |
 | Styles and language | `frontend/src/styles`, `locales` | Jay-C's Calm, Neon and Soft styles, light or dark; English or Portuguese. |
 
 ## 5. Current state
@@ -118,8 +118,9 @@ Two layers: the **engine** in Rust ([`crates/jay-docs`](../crates/jay-docs), no 
 | 8. Converter | One screen that converts files of every kind into a folder, one format per kind, with a queue, progress, Stop and asking before replacing; 20 mixed files in 3 s, the damaged one fails alone |
 | 9. Release | v0.1.0 published: NSIS installer, "Open with" for every kind, Jay-E in Jay-H |
 | 10. More tools | Images (curves, filters, straighten, marking up, retouching, HEIC/RAW), video (timeline, razor, speed, sound, text, subtitles, GIF), PDF (editing the text, filling in, pictures, redaction, signature, compressing, OCR), documents (find and replace, words, spelling, compare), converter (HTML, LaTeX, pages as pictures, pictures into one PDF, a watched folder). Shipped in v0.2.0 |
+| 0.2.2. Jay-I setup | The release file is now Jay-I's setup, which carries the NSIS installer inside and runs it silently; the updater is no longer its own copy but the line's `jay-i` crate (details and the 10 points in section 7 of `ARQUITETURA.en.md`) |
 
-**Size:** the installer is 16.5 MiB, above the 15 MB goal because of the TeX engine (ICU's data is most of it).
+**Size:** the NSIS installer is 17.59 MiB (18,446,431 bytes, measured on 0.2.2), above the 15 MB goal because of the TeX engine (ICU's data is most of it); the published setup is 20.67 MiB (21,674,496 bytes, built here with the same step as the workflow; the NSIS installer is inside it, byte for byte) (30 MB cap in CI).
 
 **Next stages:** none planned; the to-do list below and the ideas in `docs/REFERENCIAS.en.md` (section 6) that were left out.
 

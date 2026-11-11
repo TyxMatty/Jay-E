@@ -65,7 +65,7 @@ VCPKGRS_TRIPLET = "x64-windows-static-md"
 
 ## Releases
 
-A version tag (`v*`) builds the installer in GitHub Actions ([`installer.yml`](.github/workflows/installer.yml)) as a draft release; publishing it delivers the update through Jay-H and Jay-E's own updater. Bump the version in `frontend/src-tauri/tauri.conf.json`, `frontend/src-tauri/Cargo.toml` and `frontend/package.json` first: the tag has to match it.
+A version tag (`v*`) builds the installer (wrapped in the Jay line's shared setup) in GitHub Actions ([`installer.yml`](.github/workflows/installer.yml)) as a draft release; publishing it delivers the update through Jay-H and Jay-E's own updater. Bump the version in `frontend/src-tauri/tauri.conf.json`, `frontend/src-tauri/Cargo.toml` and `frontend/package.json` first: the tag has to match it.
 
 ## Tests
 

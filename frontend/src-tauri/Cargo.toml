@@ -1,6 +1,6 @@
 [package]
 name = "jay-e"
-version = "0.2.1"
+version = "0.2.2"
 description = "Jay-E — documents, images and video: read, edit and convert"
 authors = ["TyxMatty"]
 license = "MIT"
@@ -22,10 +22,8 @@ jay-docs = { path = "../../crates/jay-docs", features = ["tex"] }
 # The decoded images the editor holds (jay-docs decodes them); the same versions as jay-docs.
 image = { version = "0.25", default-features = false }
 rayon = "1"
-# Updates (src/update.rs): the latest GitHub release, checked by its SHA-256; the same crates as Jay-H.
-semver = "1"
-sha2 = "0.10"
-ureq = { version = "3", features = ["json"] }
+# The shared updater of the Jay line; bump together with the Jay-I `ref` in .github/workflows/installer.yml.
+jay-i = { git = "https://github.com/TyxMatty/Jay-I", rev = "f4f9ef07c0cf49abd1f53d3caa00c69e5aa1c90a" }
 
 [profile.release]
 # Smaller, leaner binaries (same as Jay-C).
